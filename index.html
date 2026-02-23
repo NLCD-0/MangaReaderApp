@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a0f">
+    <meta name="description"
+        content="Personal manga and webtoon reader — seamless PDF reading from your GitHub cloud library.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>MangaCloud Reader</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+    <!-- ==================== LIBRARY VIEW ==================== -->
+    <div id="view-library" class="view active">
+        <header class="app-header">
+            <div class="header-content">
+                <h1 class="app-title">
+                    <span class="title-icon">📚</span>
+                    MangaCloud
+                </h1>
+                <p class="app-subtitle">Your personal cloud library</p>
+                <button class="btn-settings" id="btn-open-settings" aria-label="Settings" title="Update GitHub token">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+        <main class="library-grid" id="library-grid">
+            <!-- Folder cards injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== SETTINGS MODAL ==================== -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">⚙️ Settings</h2>
+                <button class="modal-close" id="btn-close-settings" aria-label="Close settings">✕</button>
+            </div>
+            <div class="modal-body">
+                <label class="modal-label" for="token-input">GitHub Personal Access Token</label>
+                <input class="modal-input" id="token-input" type="password" placeholder="ghp_…" autocomplete="off"
+                    spellcheck="false">
+                <p class="modal-hint">Needs <strong>repo</strong> scope. When your token expires, generate a new one at
+                    <a href="https://github.com/settings/tokens" target="_blank"
+                        rel="noopener">github.com/settings/tokens</a> and paste it here.</p>
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-save" id="btn-save-token">Save Token</button>
+                    <button class="modal-btn modal-btn-reset" id="btn-reset-token">Reset to Default</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== SERIES VIEW ==================== -->
+    <div id="view-series" class="view">
+        <header class="app-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-library" aria-label="Back to library">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div>
+                    <h1 class="view-title" id="series-title">Series</h1>
+                    <p class="view-subtitle" id="series-subtitle">Browse your collection</p>
+                </div>
+            </div>
+        </header>
+        <main class="series-list" id="series-list">
+            <!-- Series cards injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== CHAPTERS VIEW ==================== -->
+    <div id="view-chapters" class="view">
+        <header class="app-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-series" aria-label="Back to series">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div>
+                    <h1 class="view-title" id="chapters-title">Chapters</h1>
+                    <p class="view-subtitle" id="chapters-subtitle">Select a chapter to read</p>
+                </div>
+            </div>
+        </header>
+        <main class="chapters-list" id="chapters-list">
+            <!-- Chapter items injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== READER VIEW ==================== -->
+    <div id="view-reader" class="view">
+        <header class="reader-header" id="reader-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-chapters" aria-label="Back to chapters">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="reader-header-info">
+                    <h1 class="view-title" id="reader-title">Reading</h1>
+                    <p class="view-subtitle" id="reader-progress">Page 0 / 0</p>
+                </div>
+                <button class="btn-download" id="btn-download" aria-label="Download chapter">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+        <div class="reader-container" id="reader-container">
+            <!-- PDF canvases stacked here -->
+        </div>
+
+        <!-- Chapter navigation -->
+        <div class="chapter-nav" id="chapter-nav">
+            <button class="chapter-nav-btn" id="btn-prev-chapter" aria-label="Previous chapter">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 12H5" />
+                    <path d="M12 19l-7-7 7-7" />
+                </svg>
+                <span>Prev</span>
+            </button>
+            <button class="chapter-nav-btn" id="btn-next-chapter" aria-label="Next chapter">
+                <span>Next</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5l7 7-7 7" />
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== LOADING OVERLAY ==================== -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loader">
+            <div class="loader-spinner"></div>
+            <p class="loader-text" id="loader-text">Loading...</p>
+        </div>
+    </div>
+
+    <!-- ==================== TOAST ==================== -->
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

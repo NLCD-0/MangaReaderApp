@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" width="120" height="80">
+  <g fill="none" stroke="#B71C1C" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Stylized A with heart-like top -->
+    <path d="M5 70 Q15 20 25 12 Q30 8 35 12 Q45 20 55 70"/>
+    <path d="M18 50 L42 50"/>
+    <!-- O -->
+    <ellipse cx="65" cy="45" rx="12" ry="20" stroke-width="5"/>
+    <!-- 3 -->
+    <path d="M85 18 Q105 15 105 32 Q105 43 90 43 Q107 43 107 56 Q107 72 85 72"/>
+  </g>
+</svg>
