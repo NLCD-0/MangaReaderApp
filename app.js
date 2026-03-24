@@ -1,5 +1,5 @@
 /* ============================================
-   MANGA CLOUD READER — App Logic
+   MANGA CLOUD READER — App Logic (Optimized)
    GitHub API + PDF.js + SPA Navigation
    ============================================ */
 
@@ -16,49 +16,65 @@ const CONFIG = {
     ]
 };
 
+const API_BASE = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents`;
+
 function getToken() {
     return localStorage.getItem('mangacloud_token') || CONFIG.defaultToken;
 }
 
-const API_BASE = 'https://api.github.com/repos/' + CONFIG.owner + '/' + CONFIG.repo + '/contents';
-
 // ---- STATE ----
-var state = {
+const state = {
     currentFolder: null,
     currentRootConfig: null,
     currentSeries: null,
     chapters: [],
     currentChapterIndex: -1,
-    currentPdfUrl: null,
     currentPdfBlob: null,
     headerVisible: true,
     hideTimer: null,
-    navigationStack: []
+    navigationStack: [],
+    isTextMode: false
 };
 
-// Build icon HTML from a root folder config
+function isAo3Mode() {
+    return state.currentRootConfig && state.currentRootConfig.path === 'ao3';
+}
+
+// ---- CACHED DOM REFS ----
+const dom = {};
+
+function cacheDom() {
+    const ids = [
+        'library-grid', 'series-list', 'series-title', 'series-subtitle',
+        'chapters-list', 'chapters-title', 'chapters-subtitle',
+        'reader-container', 'reader-title', 'reader-progress', 'reader-header',
+        'chapter-nav', 'btn-prev-chapter', 'btn-next-chapter', 'btn-download',
+        'btn-back-library', 'btn-back-series', 'btn-back-chapters',
+        'btn-open-settings', 'btn-close-settings', 'settings-modal',
+        'btn-save-token', 'btn-reset-token', 'token-input',
+        'loading-overlay', 'loader-text', 'toast'
+    ];
+    ids.forEach(id => { dom[id] = document.getElementById(id); });
+}
+
+// Icon HTML builder (cached per config)
 function getRootIconHtml(cfg) {
     if (!cfg) return '📁';
     if (cfg.isImage) {
-        return '<img src="' + cfg.icon + '" alt="' + escapeAttr(cfg.path) + '" style="width:32px;height:32px;object-fit:contain;">';
+        return `<img src="${cfg.icon}" alt="${escapeAttr(cfg.path)}" style="width:32px;height:32px;object-fit:contain;">`;
     }
     return cfg.icon;
 }
 
-// ---- DOM ELEMENTS ----
-function $(id) { return document.getElementById(id); }
-
 // ---- PDF.js INIT ----
-var pdfjsReady = false;
+let pdfjsReady = false;
 
 function initPdfJs() {
-    return new Promise(function (resolve) {
-        if (pdfjsReady) { resolve(); return; }
-
-        // Load pdf.js via legacy script
-        var script = document.createElement('script');
+    if (pdfjsReady) return Promise.resolve();
+    return new Promise(resolve => {
+        const script = document.createElement('script');
         script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-        script.onload = function () {
+        script.onload = () => {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
             pdfjsReady = true;
             resolve();
@@ -68,64 +84,71 @@ function initPdfJs() {
 }
 
 // ---- GITHUB API ----
+function encodePath(path) {
+    return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function githubHeaders(accept) {
+    return {
+        'Authorization': 'token ' + getToken(),
+        'Accept': accept
+    };
+}
+
 function fetchGitHub(path) {
-    var encodedPath = path.split('/').map(function (p) { return encodeURIComponent(p); }).join('/');
-    var url = API_BASE + '/' + encodedPath + '?ref=' + CONFIG.branch;
-    return fetch(url, {
-        headers: {
-            'Authorization': 'token ' + getToken(),
-            'Accept': 'application/vnd.github.v3+json'
-        }
-    }).then(function (resp) {
-        if (!resp.ok) throw new Error('GitHub API error: ' + resp.status);
-        return resp.json();
-    });
+    const url = `${API_BASE}/${encodePath(path)}?ref=${CONFIG.branch}`;
+    return fetch(url, { headers: githubHeaders('application/vnd.github.v3+json') })
+        .then(resp => {
+            if (!resp.ok) throw new Error('GitHub API error: ' + resp.status);
+            return resp.json();
+        });
 }
 
 function fetchPdfBlob(path) {
-    var encodedPath = path.split('/').map(function (p) { return encodeURIComponent(p); }).join('/');
-    var url = API_BASE + '/' + encodedPath + '?ref=' + CONFIG.branch;
-    return fetch(url, {
-        headers: {
-            'Authorization': 'token ' + getToken(),
-            'Accept': 'application/vnd.github.v3.raw'
-        }
-    }).then(function (resp) {
-        if (!resp.ok) throw new Error('Download error: ' + resp.status);
-        return resp.blob();
-    });
+    const url = `${API_BASE}/${encodePath(path)}?ref=${CONFIG.branch}`;
+    return fetch(url, { headers: githubHeaders('application/vnd.github.v3.raw') })
+        .then(resp => {
+            if (!resp.ok) throw new Error('Download error: ' + resp.status);
+            return resp.blob();
+        });
 }
 
 // ---- VIEW NAVIGATION ----
+const allViews = [];
+
+function initViews() {
+    document.querySelectorAll('.view').forEach(v => allViews.push(v));
+}
+
 function showView(name) {
-    var views = document.querySelectorAll('.view');
-    views.forEach(function (v) { v.classList.remove('active'); });
+    allViews.forEach(v => v.classList.remove('active'));
     document.getElementById('view-' + name).classList.add('active');
-    if (name !== 'reader') {
-        window.scrollTo(0, 0);
-    }
+    if (name !== 'reader') window.scrollTo(0, 0);
 }
 
 // ---- LOADING ----
 function showLoading(text) {
-    $('loader-text').textContent = text || 'Loading...';
-    $('loading-overlay').classList.add('active');
+    dom['loader-text'].textContent = text || 'Loading...';
+    dom['loading-overlay'].classList.add('active');
 }
+
 function hideLoading() {
-    $('loading-overlay').classList.remove('active');
+    dom['loading-overlay'].classList.remove('active');
 }
 
 // ---- TOAST ----
+let toastTimer = null;
 function showToast(msg) {
-    var toast = $('toast');
-    toast.textContent = msg;
-    toast.classList.add('visible');
-    setTimeout(function () { toast.classList.remove('visible'); }, 2500);
+    clearTimeout(toastTimer);
+    dom.toast.textContent = msg;
+    dom.toast.classList.add('visible');
+    toastTimer = setTimeout(() => dom.toast.classList.remove('visible'), 2500);
 }
 
 // ---- NATURAL SORT ----
+const sortOpts = { numeric: true, sensitivity: 'base' };
 function naturalSort(a, b) {
-    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+    return a.localeCompare(b, undefined, sortOpts);
 }
 
 // ---- FORMAT FILE SIZE ----
@@ -136,26 +159,33 @@ function formatSize(bytes) {
 }
 
 // ---- READING PROGRESS ----
-function saveProgress(seriesPath, chapterName) {
+let progressCache = null;
+
+function loadProgress() {
+    if (progressCache) return progressCache;
     try {
-        var progress = JSON.parse(localStorage.getItem('mangacloud_progress') || '{}');
-        progress[seriesPath] = chapterName;
+        progressCache = JSON.parse(localStorage.getItem('mangacloud_progress') || '{}');
+    } catch { progressCache = {}; }
+    return progressCache;
+}
+
+function saveProgress(seriesPath, chapterName) {
+    const progress = loadProgress();
+    progress[seriesPath] = chapterName;
+    try {
         localStorage.setItem('mangacloud_progress', JSON.stringify(progress));
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
 }
 
 function getProgress(seriesPath) {
-    try {
-        var progress = JSON.parse(localStorage.getItem('mangacloud_progress') || '{}');
-        return progress[seriesPath] || null;
-    } catch (e) { return null; }
+    return loadProgress()[seriesPath] || null;
 }
 
 // ---- HELPERS ----
+const escapeDiv = document.createElement('div');
 function escapeHtml(str) {
-    var div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    escapeDiv.textContent = str;
+    return escapeDiv.innerHTML;
 }
 
 function escapeAttr(str) {
@@ -166,67 +196,114 @@ function truncate(str, max) {
     return str.length > max ? str.slice(0, max) + '…' : str;
 }
 
+// ---- SHARED: filter & sort items ----
+function splitItems(items) {
+    const folders = [];
+    const pdfs = [];
+    for (let i = 0, len = items.length; i < len; i++) {
+        const item = items[i];
+        if (item.type === 'dir') {
+            folders.push(item);
+        } else if (item.type === 'file' && item.name.toLowerCase().endsWith('.pdf')) {
+            pdfs.push(item);
+        }
+    }
+    folders.sort((a, b) => naturalSort(a.name, b.name));
+    pdfs.sort((a, b) => naturalSort(a.name, b.name));
+    return { folders, pdfs };
+}
+
+// ---- SHARED: reader completion ----
+function finishReader(chapter, index) {
+    saveProgress(state.currentSeries, chapter.name);
+    dom['btn-prev-chapter'].disabled = index <= 0;
+    dom['btn-next-chapter'].disabled = index >= state.chapters.length - 1;
+    hideLoading();
+    showView('reader');
+    window.scrollTo(0, 0);
+    state.headerVisible = true;
+    dom['reader-header'].classList.remove('hidden');
+    dom['chapter-nav'].classList.remove('hidden');
+}
+
+// ---- SHARED: navigate chapter ----
+function navigateChapter(index) {
+    if (isAo3Mode()) {
+        openChapterAsText(index);
+    } else {
+        openChapter(index);
+    }
+}
+
 // ============================================
-// LIBRARY VIEW
+// LIBRARY VIEW — event delegation
 // ============================================
 function renderLibrary() {
-    var grid = $('library-grid');
-    grid.innerHTML = CONFIG.rootFolders.map(function (folder) {
-        var iconHtml = folder.isImage
-            ? '<img src="' + folder.icon + '" alt="' + escapeAttr(folder.path) + '" style="width:36px;height:36px;object-fit:contain;">'
+    const grid = dom['library-grid'];
+    grid.innerHTML = CONFIG.rootFolders.map(folder => {
+        const iconHtml = folder.isImage
+            ? `<img src="${folder.icon}" alt="${escapeAttr(folder.path)}" style="width:36px;height:36px;object-fit:contain;">`
             : folder.icon;
-        return '<div class="folder-card" data-path="' + escapeAttr(folder.path) + '">' +
-            '<div class="folder-icon">' + iconHtml + '</div>' +
-            '<div class="folder-info">' +
-            '<div class="folder-name">' + escapeHtml(folder.path) + '</div>' +
-            '<div class="folder-desc">' + escapeHtml(folder.desc) + '</div>' +
-            '</div>' +
-            '<div class="folder-arrow">' +
-            '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>' +
-            '</div>' +
-            '</div>';
+        return `<div class="folder-card" data-path="${escapeAttr(folder.path)}">
+            <div class="folder-icon">${iconHtml}</div>
+            <div class="folder-info">
+                <div class="folder-name">${escapeHtml(folder.path)}</div>
+                <div class="folder-desc">${escapeHtml(folder.desc)}</div>
+            </div>
+            <div class="folder-arrow">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+            </div>
+        </div>`;
     }).join('');
 
-    grid.querySelectorAll('.folder-card').forEach(function (card) {
-        card.addEventListener('click', function () {
-            state.navigationStack.push('library');
-            openFolder(card.dataset.path);
-        });
+    // Event delegation on grid
+    grid.addEventListener('click', e => {
+        const card = e.target.closest('.folder-card');
+        if (!card) return;
+        state.navigationStack.push('library');
+        openFolder(card.dataset.path);
     });
 }
 
 // ============================================
 // SERIES VIEW
 // ============================================
+function renderSeriesCards(container, items, iconHtml) {
+    container.innerHTML = items.map(f => {
+        const lastRead = getProgress(f.path);
+        const badgeHtml = lastRead
+            ? `<div class="series-badge">↗ ${truncate(lastRead.replace(/\.pdf$/i, ''), 20)}</div>`
+            : '';
+        return `<div class="series-card" data-path="${escapeAttr(f.path)}" data-name="${escapeAttr(f.name)}">
+            <div class="series-emoji">${iconHtml}</div>
+            <div class="series-name">${escapeHtml(f.name)}</div>
+            ${badgeHtml}
+        </div>`;
+    }).join('');
+}
+
+function attachSeriesListeners(container) {
+    container.addEventListener('click', e => {
+        const card = e.target.closest('.series-card');
+        if (!card) return;
+        state.navigationStack.push('series');
+        openSeries(card.dataset.path, card.dataset.name);
+    });
+}
+
 function openFolder(folderPath) {
     showLoading('Loading collection...');
     state.currentFolder = folderPath;
-    // Track which root folder we're inside
-    state.currentRootConfig = CONFIG.rootFolders.find(function (r) { return r.path === folderPath; }) || state.currentRootConfig;
+    state.currentRootConfig = CONFIG.rootFolders.find(r => r.path === folderPath) || state.currentRootConfig;
 
-    fetchGitHub(folderPath).then(function (items) {
-        var folders = items.filter(function (i) { return i.type === 'dir'; })
-            .sort(function (a, b) { return naturalSort(a.name, b.name); });
-        var pdfs = items.filter(function (i) { return i.type === 'file' && i.name.toLowerCase().endsWith('.pdf'); })
-            .sort(function (a, b) { return naturalSort(a.name, b.name); });
+    fetchGitHub(folderPath).then(items => {
+        const { folders, pdfs } = splitItems(items);
 
-        $('series-title').textContent = folderPath.split('/').pop();
-        $('series-subtitle').textContent = folders.length + ' series · ' + pdfs.length + ' files';
+        dom['series-title'].textContent = folderPath.split('/').pop();
+        dom['series-subtitle'].textContent = folders.length + ' series · ' + pdfs.length + ' files';
 
-        var list = $('series-list');
-        var iconHtml = getRootIconHtml(state.currentRootConfig);
-
-        if (folders.length > 0) {
-            list.innerHTML = folders.map(function (f) {
-                var lastRead = getProgress(f.path);
-                var badgeHtml = lastRead ? '<div class="series-badge">↗ ' + truncate(lastRead.replace(/\.pdf$/i, ''), 20) + '</div>' : '';
-                return '<div class="series-card" data-path="' + escapeAttr(f.path) + '" data-name="' + escapeAttr(f.name) + '">' +
-                    '<div class="series-emoji">' + iconHtml + '</div>' +
-                    '<div class="series-name">' + escapeHtml(f.name) + '</div>' +
-                    badgeHtml +
-                    '</div>';
-            }).join('');
-        }
+        const list = dom['series-list'];
+        const iconHtml = getRootIconHtml(state.currentRootConfig);
 
         // If only PDFs, go straight to chapters
         if (pdfs.length > 0 && folders.length === 0) {
@@ -235,20 +312,16 @@ function openFolder(folderPath) {
             return;
         }
 
-        list.querySelectorAll('.series-card').forEach(function (card) {
-            card.addEventListener('click', function () {
-                state.navigationStack.push('series');
-                openSeries(card.dataset.path, card.dataset.name);
-            });
-        });
-
-        if (folders.length === 0 && pdfs.length === 0) {
+        if (folders.length > 0) {
+            renderSeriesCards(list, folders, iconHtml);
+        } else {
             list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">This folder is empty</div></div>';
         }
 
+        attachSeriesListeners(list);
         hideLoading();
         showView('series');
-    }).catch(function (err) {
+    }).catch(err => {
         hideLoading();
         showToast('Error loading folder');
         console.error(err);
@@ -262,72 +335,59 @@ function openSeries(seriesPath, seriesName) {
     showLoading('Loading chapters...');
     state.currentSeries = seriesPath;
 
-    fetchGitHub(seriesPath).then(function (items) {
-        var pdfs = items.filter(function (i) { return i.type === 'file' && i.name.toLowerCase().endsWith('.pdf'); })
-            .sort(function (a, b) { return naturalSort(a.name, b.name); });
-        var subfolders = items.filter(function (i) { return i.type === 'dir'; })
-            .sort(function (a, b) { return naturalSort(a.name, b.name); });
+    fetchGitHub(seriesPath).then(items => {
+        const { folders: subfolders, pdfs } = splitItems(items);
 
         // Deeper navigation if only subfolders
         if (subfolders.length > 0 && pdfs.length === 0) {
             hideLoading();
             state.currentFolder = seriesPath;
-            $('series-title').textContent = seriesName;
-            $('series-subtitle').textContent = subfolders.length + ' items';
-            var list = $('series-list');
-            var iconHtml = getRootIconHtml(state.currentRootConfig);
-            list.innerHTML = subfolders.map(function (f) {
-                return '<div class="series-card" data-path="' + escapeAttr(f.path) + '" data-name="' + escapeAttr(f.name) + '">' +
-                    '<div class="series-emoji">' + iconHtml + '</div>' +
-                    '<div class="series-name">' + escapeHtml(f.name) + '</div>' +
-                    '</div>';
-            }).join('');
-            list.querySelectorAll('.series-card').forEach(function (card) {
-                card.addEventListener('click', function () {
-                    state.navigationStack.push('series');
-                    openSeries(card.dataset.path, card.dataset.name);
-                });
-            });
+            dom['series-title'].textContent = seriesName;
+            dom['series-subtitle'].textContent = subfolders.length + ' items';
+            const list = dom['series-list'];
+            renderSeriesCards(list, subfolders, getRootIconHtml(state.currentRootConfig));
+            attachSeriesListeners(list);
             showView('series');
             return;
         }
 
         state.chapters = pdfs;
-        $('chapters-title').textContent = seriesName;
-        $('chapters-subtitle').textContent = pdfs.length + ' chapters';
+        dom['chapters-title'].textContent = seriesName;
+        dom['chapters-subtitle'].textContent = pdfs.length + ' chapters';
 
-        var chaptersList = $('chapters-list');
+        const chaptersList = dom['chapters-list'];
 
         if (pdfs.length === 0) {
             chaptersList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">No chapters found</div></div>';
         } else {
-            var lastRead = getProgress(seriesPath);
-            chaptersList.innerHTML = pdfs.map(function (pdf, idx) {
-                var displayName = pdf.name.replace(/\.pdf$/i, '');
-                var isLastRead = lastRead === pdf.name;
-                return '<div class="chapter-item' + (isLastRead ? ' last-read' : '') + '" data-index="' + idx + '">' +
-                    '<div class="chapter-number">' + (idx + 1) + '</div>' +
-                    '<div class="chapter-info">' +
-                    '<div class="chapter-name">' + escapeHtml(displayName) + '</div>' +
-                    '<div class="chapter-size">' + formatSize(pdf.size) + (isLastRead ? ' · Last read' : '') + '</div>' +
-                    '</div>' +
-                    '<div class="chapter-read-icon">' +
-                    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>' +
-                    '</div>' +
-                    '</div>';
+            const lastRead = getProgress(seriesPath);
+            chaptersList.innerHTML = pdfs.map((pdf, idx) => {
+                const displayName = pdf.name.replace(/\.pdf$/i, '');
+                const isLastRead = lastRead === pdf.name;
+                return `<div class="chapter-item${isLastRead ? ' last-read' : ''}" data-index="${idx}">
+                    <div class="chapter-number">${idx + 1}</div>
+                    <div class="chapter-info">
+                        <div class="chapter-name">${escapeHtml(displayName)}</div>
+                        <div class="chapter-size">${formatSize(pdf.size)}${isLastRead ? ' · Last read' : ''}</div>
+                    </div>
+                    <div class="chapter-read-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                    </div>
+                </div>`;
             }).join('');
 
-            chaptersList.querySelectorAll('.chapter-item').forEach(function (item) {
-                item.addEventListener('click', function () {
-                    state.navigationStack.push('chapters');
-                    openChapter(parseInt(item.dataset.index));
-                });
+            // Event delegation
+            chaptersList.addEventListener('click', e => {
+                const item = e.target.closest('.chapter-item');
+                if (!item) return;
+                state.navigationStack.push('chapters');
+                navigateChapter(parseInt(item.dataset.index));
             });
         }
 
         hideLoading();
         showView('chapters');
-    }).catch(function (err) {
+    }).catch(err => {
         hideLoading();
         showToast('Error loading chapters');
         console.error(err);
@@ -335,130 +395,268 @@ function openSeries(seriesPath, seriesName) {
 }
 
 // ============================================
-// READER VIEW
+// READER VIEW (canvas mode)
 // ============================================
 function openChapter(index) {
     if (index < 0 || index >= state.chapters.length) return;
 
     state.currentChapterIndex = index;
-    var chapter = state.chapters[index];
+    state.isTextMode = false;
+    const chapter = state.chapters[index];
 
     showLoading('Downloading ' + chapter.name + '...');
 
-    initPdfJs().then(function () {
-        return fetchPdfBlob(chapter.path);
-    }).then(function (blob) {
-        state.currentPdfBlob = blob;
-        showLoading('Rendering pages...');
-        return blob.arrayBuffer();
-    }).then(function (arrayBuffer) {
-        return pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    }).then(function (pdf) {
-        var totalPages = pdf.numPages;
+    initPdfJs()
+        .then(() => fetchPdfBlob(chapter.path))
+        .then(blob => {
+            state.currentPdfBlob = blob;
+            showLoading('Rendering pages...');
+            return blob.arrayBuffer();
+        })
+        .then(buf => pdfjsLib.getDocument({ data: buf }).promise)
+        .then(pdf => {
+            const totalPages = pdf.numPages;
+            const container = dom['reader-container'];
+            container.innerHTML = '';
 
-        $('reader-title').textContent = chapter.name.replace(/\.pdf$/i, '');
-        $('reader-progress').textContent = totalPages + ' pages';
+            dom['reader-title'].textContent = chapter.name.replace(/\.pdf$/i, '');
+            dom['reader-progress'].textContent = totalPages + ' pages';
 
-        var container = $('reader-container');
-        container.innerHTML = '';
+            const dpr = window.devicePixelRatio || 1;
+            const containerWidth = Math.min(window.innerWidth, 800);
 
-        var devicePixelRatio = window.devicePixelRatio || 1;
-        var containerWidth = Math.min(window.innerWidth, 800);
+            // Use DocumentFragment for batched DOM insertion
+            const frag = document.createDocumentFragment();
 
-        // Render pages sequentially
-        var renderPage = function (pageNum) {
-            if (pageNum > totalPages) {
-                // All done
-                saveProgress(state.currentSeries, chapter.name);
-                $('btn-prev-chapter').disabled = index <= 0;
-                $('btn-next-chapter').disabled = index >= state.chapters.length - 1;
-                hideLoading();
-                showView('reader');
-                window.scrollTo(0, 0);
-                state.headerVisible = true;
-                $('reader-header').classList.remove('hidden');
-                $('chapter-nav').classList.remove('hidden');
-                startHideTimer();
-                return;
-            }
+            const renderPage = pageNum => {
+                if (pageNum > totalPages) {
+                    container.appendChild(frag);
+                    finishReader(chapter, index);
+                    startHideTimer();
+                    return;
+                }
 
-            pdf.getPage(pageNum).then(function (page) {
-                var unscaledViewport = page.getViewport({ scale: 1 });
-                var scale = (containerWidth * devicePixelRatio) / unscaledViewport.width;
-                var viewport = page.getViewport({ scale: scale });
+                pdf.getPage(pageNum).then(page => {
+                    const unscaled = page.getViewport({ scale: 1 });
+                    const scale = (containerWidth * dpr) / unscaled.width;
+                    const viewport = page.getViewport({ scale });
 
-                var canvas = document.createElement('canvas');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-                canvas.style.width = '100%';
-                canvas.style.height = 'auto';
-                container.appendChild(canvas);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    canvas.style.width = '100%';
+                    canvas.style.height = 'auto';
+                    frag.appendChild(canvas);
 
-                var ctx = canvas.getContext('2d');
-                page.render({ canvasContext: ctx, viewport: viewport }).promise.then(function () {
-                    $('reader-progress').textContent = 'Rendered ' + pageNum + ' / ' + totalPages;
-                    renderPage(pageNum + 1);
+                    page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise.then(() => {
+                        dom['reader-progress'].textContent = `Rendered ${pageNum} / ${totalPages}`;
+                        // Flush fragment every 5 pages for progressive display
+                        if (pageNum % 5 === 0) {
+                            container.appendChild(frag);
+                        }
+                        renderPage(pageNum + 1);
+                    });
                 });
-            });
-        };
+            };
 
-        renderPage(1);
-    }).catch(function (err) {
-        hideLoading();
-        showToast('Error loading PDF');
-        console.error(err);
-    });
+            renderPage(1);
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error loading PDF');
+            console.error(err);
+        });
+}
+
+// ============================================
+// TEXT READER (AO3 mode)
+// ============================================
+function extractParagraphs(textContent) {
+    const items = textContent.items;
+    const lines = [];
+    let currentLine = '';
+    let lastY = null;
+
+    for (let i = 0, len = items.length; i < len; i++) {
+        const item = items[i];
+        const str = item.str;
+
+        if (str.trim() === '') {
+            if (currentLine.trim()) {
+                lines.push(currentLine.trim());
+                currentLine = '';
+            }
+            continue;
+        }
+
+        const y = item.transform ? item.transform[5] : null;
+
+        if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) {
+            if (currentLine.trim()) lines.push(currentLine.trim());
+            currentLine = str;
+        } else {
+            if (currentLine && !currentLine.endsWith(' ') && !str.startsWith(' ')) {
+                currentLine += ' ';
+            }
+            currentLine += str;
+        }
+        lastY = y;
+    }
+    if (currentLine.trim()) lines.push(currentLine.trim());
+
+    // Merge into paragraphs
+    const paragraphs = [];
+    let para = '';
+
+    for (let i = 0, len = lines.length; i < len; i++) {
+        const line = lines[i];
+        if (para && line.length > 0) {
+            const prevEnds = /[.!?:;"'»)\]]$/.test(para);
+            const lineStarts = /^[A-ZÀ-ÖØ-Þ"'«(\[]/.test(line);
+            const isShort = para.length < 60;
+
+            if ((prevEnds && lineStarts) || isShort) {
+                if (para.trim()) paragraphs.push(para.trim());
+                para = line;
+            } else {
+                para += ' ' + line;
+            }
+        } else {
+            para += (para ? ' ' : '') + line;
+        }
+    }
+    if (para.trim()) paragraphs.push(para.trim());
+
+    return paragraphs;
+}
+
+function openChapterAsText(index) {
+    if (index < 0 || index >= state.chapters.length) return;
+
+    state.currentChapterIndex = index;
+    state.isTextMode = true;
+    const chapter = state.chapters[index];
+
+    showLoading('Downloading ' + chapter.name + '...');
+
+    initPdfJs()
+        .then(() => fetchPdfBlob(chapter.path))
+        .then(blob => {
+            state.currentPdfBlob = blob;
+            showLoading('Extracting text...');
+            return blob.arrayBuffer();
+        })
+        .then(buf => pdfjsLib.getDocument({ data: buf }).promise)
+        .then(pdf => {
+            const totalPages = pdf.numPages;
+            const container = dom['reader-container'];
+            container.innerHTML = '';
+            container.classList.add('text-mode');
+
+            dom['reader-title'].textContent = chapter.name.replace(/\.pdf$/i, '');
+            dom['reader-progress'].textContent = totalPages + ' pages';
+
+            const frag = document.createDocumentFragment();
+
+            const extractPage = pageNum => {
+                if (pageNum > totalPages) {
+                    container.appendChild(frag);
+                    finishReader(chapter, index);
+                    return;
+                }
+
+                pdf.getPage(pageNum)
+                    .then(page => page.getTextContent())
+                    .then(textContent => {
+                        const pageDiv = document.createElement('div');
+                        pageDiv.className = 'text-page';
+
+                        const paragraphs = extractParagraphs(textContent);
+
+                        if (paragraphs.length === 0) {
+                            const p = document.createElement('p');
+                            p.className = 'text-empty-page';
+                            p.textContent = `— Page ${pageNum} (no text) —`;
+                            pageDiv.appendChild(p);
+                        } else {
+                            for (let i = 0; i < paragraphs.length; i++) {
+                                const p = document.createElement('p');
+                                p.textContent = paragraphs[i];
+                                pageDiv.appendChild(p);
+                            }
+                        }
+
+                        frag.appendChild(pageDiv);
+                        dom['reader-progress'].textContent = `Extracted ${pageNum} / ${totalPages}`;
+
+                        // Flush every 10 pages for progressive display
+                        if (pageNum % 10 === 0) {
+                            container.appendChild(frag);
+                        }
+                        extractPage(pageNum + 1);
+                    });
+            };
+
+            extractPage(1);
+        })
+        .catch(err => {
+            hideLoading();
+            showToast('Error extracting text');
+            console.error(err);
+        });
 }
 
 // ---- READER HEADER AUTO-HIDE ----
 function startHideTimer() {
     clearTimeout(state.hideTimer);
-    state.hideTimer = setTimeout(function () {
+    state.hideTimer = setTimeout(() => {
+        if (state.isTextMode) return; // Keep visible in text mode
         state.headerVisible = false;
-        $('reader-header').classList.add('hidden');
-        $('chapter-nav').classList.add('hidden');
+        dom['reader-header'].classList.add('hidden');
+        dom['chapter-nav'].classList.add('hidden');
     }, 3000);
 }
 
 function toggleReaderUI() {
     state.headerVisible = !state.headerVisible;
     if (state.headerVisible) {
-        $('reader-header').classList.remove('hidden');
-        $('chapter-nav').classList.remove('hidden');
+        dom['reader-header'].classList.remove('hidden');
+        dom['chapter-nav'].classList.remove('hidden');
         startHideTimer();
     } else {
-        $('reader-header').classList.add('hidden');
-        $('chapter-nav').classList.add('hidden');
+        dom['reader-header'].classList.add('hidden');
+        dom['chapter-nav'].classList.add('hidden');
     }
 }
 
 // ---- DOWNLOAD ----
 function downloadCurrentPdf() {
     if (!state.currentPdfBlob || state.currentChapterIndex < 0) return;
-    var chapter = state.chapters[state.currentChapterIndex];
-    var url = URL.createObjectURL(state.currentPdfBlob);
-    var a = document.createElement('a');
+    const chapter = state.chapters[state.currentChapterIndex];
+    const url = URL.createObjectURL(state.currentPdfBlob);
+    const a = document.createElement('a');
     a.href = url;
     a.download = chapter.name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Download started!');
 }
 
 // ---- CLEANUP ----
 function cleanupReader() {
-    var container = $('reader-container');
+    const container = dom['reader-container'];
     container.innerHTML = '';
+    container.classList.remove('text-mode');
     state.currentPdfBlob = null;
-    state.currentPdfUrl = null;
+    state.isTextMode = false;
     clearTimeout(state.hideTimer);
 }
 
 // ---- BACK NAVIGATION ----
 function goBack() {
-    var prev = state.navigationStack.pop();
+    const prev = state.navigationStack.pop();
     if (prev === 'chapters') {
         cleanupReader();
         showView('chapters');
@@ -472,82 +670,75 @@ function goBack() {
 // ============================================
 // EVENT LISTENERS
 // ============================================
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', () => {
+    cacheDom();
+    initViews();
     renderLibrary();
 
     // Back buttons
-    $('btn-back-library').addEventListener('click', function () {
+    dom['btn-back-library'].addEventListener('click', () => {
         state.navigationStack = [];
         showView('library');
     });
-
-    $('btn-back-series').addEventListener('click', function () {
-        goBack();
-    });
-
-    $('btn-back-chapters').addEventListener('click', function () {
-        goBack();
-    });
+    dom['btn-back-series'].addEventListener('click', goBack);
+    dom['btn-back-chapters'].addEventListener('click', goBack);
 
     // Download
-    $('btn-download').addEventListener('click', downloadCurrentPdf);
+    dom['btn-download'].addEventListener('click', downloadCurrentPdf);
 
     // Chapter navigation
-    $('btn-prev-chapter').addEventListener('click', function () {
+    dom['btn-prev-chapter'].addEventListener('click', () => {
+        const wasText = state.isTextMode;
+        const prevIdx = state.currentChapterIndex - 1;
         cleanupReader();
-        openChapter(state.currentChapterIndex - 1);
+        wasText ? openChapterAsText(prevIdx) : openChapter(prevIdx);
     });
-    $('btn-next-chapter').addEventListener('click', function () {
+    dom['btn-next-chapter'].addEventListener('click', () => {
+        const wasText = state.isTextMode;
+        const nextIdx = state.currentChapterIndex + 1;
         cleanupReader();
-        openChapter(state.currentChapterIndex + 1);
+        wasText ? openChapterAsText(nextIdx) : openChapter(nextIdx);
     });
 
     // Tap reader to toggle UI
-    $('reader-container').addEventListener('click', function () {
-        toggleReaderUI();
-    });
+    dom['reader-container'].addEventListener('click', toggleReaderUI);
 
     // Browser back button support
-    window.addEventListener('popstate', function () {
-        goBack();
-    });
+    window.addEventListener('popstate', goBack);
 
     // ---- SETTINGS MODAL ----
-    function openSettings() {
-        var saved = localStorage.getItem('mangacloud_token');
-        $('token-input').value = saved || '';
-        $('settings-modal').classList.add('active');
-        $('token-input').focus();
-    }
-    function closeSettings() {
-        $('settings-modal').classList.remove('active');
-    }
+    const openSettings = () => {
+        dom['token-input'].value = localStorage.getItem('mangacloud_token') || '';
+        dom['settings-modal'].classList.add('active');
+        dom['token-input'].focus();
+    };
+    const closeSettings = () => dom['settings-modal'].classList.remove('active');
 
-    $('btn-open-settings').addEventListener('click', openSettings);
-    $('btn-close-settings').addEventListener('click', closeSettings);
-    $('settings-modal').addEventListener('click', function (e) {
-        if (e.target === $('settings-modal')) closeSettings();
+    dom['btn-open-settings'].addEventListener('click', openSettings);
+    dom['btn-close-settings'].addEventListener('click', closeSettings);
+    dom['settings-modal'].addEventListener('click', e => {
+        if (e.target === dom['settings-modal']) closeSettings();
     });
 
-    $('btn-save-token').addEventListener('click', function () {
-        var val = $('token-input').value.trim();
+    dom['btn-save-token'].addEventListener('click', () => {
+        const val = dom['token-input'].value.trim();
         if (!val) { showToast('Please enter a token'); return; }
         localStorage.setItem('mangacloud_token', val);
         closeSettings();
         showToast('Token saved! ✓');
     });
 
-    $('btn-reset-token').addEventListener('click', function () {
+    dom['btn-reset-token'].addEventListener('click', () => {
         localStorage.removeItem('mangacloud_token');
-        $('token-input').value = '';
+        dom['token-input'].value = '';
         closeSettings();
         showToast('Token reset to default');
     });
 
-    // Register service worker (requires secure context — https or localhost)
+    // Register service worker
     if ('serviceWorker' in navigator &&
         (location.protocol === 'https:' || location.hostname === 'localhost')) {
-        navigator.serviceWorker.register('sw.js').catch(function (err) {
+        navigator.serviceWorker.register('sw.js').catch(err => {
             console.log('SW registration failed:', err);
         });
     }

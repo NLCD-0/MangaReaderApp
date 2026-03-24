@@ -332,6 +332,7 @@ body {
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     -webkit-box-orient: vertical;
 }
 
@@ -489,11 +490,10 @@ body {
     width: 100%;
     max-width: 800px;
     height: auto;
-    /* Absolutely no spacing between pages */
+    /* No spacing between pages */
     margin: 0;
     padding: 0;
     line-height: 0;
-    vertical-align: bottom;
 }
 
 /* Chapter navigation at bottom */
@@ -841,4 +841,55 @@ body {
 .modal-btn-reset:hover {
     background: var(--bg-card-hover);
     color: var(--text-primary);
+}
+
+/* ---------- TEXT READER (AO3 Mode) ---------- */
+.reader-container.text-mode {
+    padding: calc(var(--header-height) + var(--safe-top) + 16px) 20px 100px;
+    align-items: stretch;
+    background: var(--bg-primary);
+}
+
+.text-page {
+    max-width: 700px;
+    width: 100%;
+    margin: 0 auto 32px;
+    padding: 24px 28px;
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+}
+
+.text-page p {
+    color: #111111;
+    font-size: 1.05rem;
+    line-height: 1.85;
+    margin-bottom: 16px;
+    text-align: justify;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+.text-page p:last-child {
+    margin-bottom: 0;
+}
+
+.text-page .text-empty-page {
+    color: var(--text-dim);
+    text-align: center;
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+/* Remove page separators in text mode */
+.reader-container.text-mode .text-page + .text-page {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 28px;
+}
+
+/* Last-read highlight for chapter items */
+.chapter-item.last-read {
+    border-color: var(--border-active);
+    background: rgba(124, 91, 245, 0.08);
 }

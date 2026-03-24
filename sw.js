@@ -1,11 +1,12 @@
 // Service Worker — Cache app shell only, NOT PDFs
-const CACHE_NAME = 'mangacloud-v1';
+const CACHE_NAME = 'mangacloud-v2';
 const SHELL_ASSETS = [
     './',
     './index.html',
     './styles.css',
     './app.js',
-    './manifest.json'
+    './manifest.json',
+    './ao3_icon.png'
 ];
 
 // Install — cache the app shell
@@ -27,8 +28,9 @@ self.addEventListener('activate', event => {
 });
 
 // Fetch strategy:
-// - App shell: cache-first
+// - App shell: stale-while-revalidate (fast load + background update)
 // - GitHub API / PDF downloads: network-only (never cache)
+// - CDN assets (pdf.js, fonts): cache-first
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
@@ -38,8 +40,35 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Cache-first for app shell assets
+    // Cache-first for CDN assets (pdf.js, fonts)
+    if (url.hostname === 'cdnjs.cloudflare.com' || url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com') {
+        event.respondWith(
+            caches.match(event.request).then(cached => {
+                if (cached) return cached;
+                return fetch(event.request).then(response => {
+                    if (response.ok) {
+                        const clone = response.clone();
+                        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                    }
+                    return response;
+                });
+            })
+        );
+        return;
+    }
+
+    // Stale-while-revalidate for app shell
     event.respondWith(
-        caches.match(event.request).then(cached => cached || fetch(event.request))
+        caches.match(event.request).then(cached => {
+            const fetchPromise = fetch(event.request).then(response => {
+                if (response.ok) {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+                }
+                return response;
+            }).catch(() => cached);
+
+            return cached || fetchPromise;
+        })
     );
 });
