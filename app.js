@@ -53,7 +53,8 @@ function cacheDom() {
         'btn-back-library', 'btn-back-series', 'btn-back-chapters',
         'btn-open-settings', 'btn-close-settings', 'settings-modal',
         'btn-save-token', 'btn-reset-token', 'token-input',
-        'loading-overlay', 'loader-text', 'toast', 'btn-bookmark'
+        'loading-overlay', 'loader-text', 'toast', 'btn-bookmark',
+        'continue-reading', 'continue-reading-list'
     ];
     ids.forEach(id => { dom[id] = document.getElementById(id); });
 }
@@ -303,6 +304,44 @@ function navigateChapter(index) {
 }
 
 // ============================================
+// CONTINUE READING
+// ============================================
+function renderContinueReading() {
+    const section = dom['continue-reading'];
+    const list = dom['continue-reading-list'];
+    if (!section || !list) return;
+
+    const progress = loadProgress();
+    const entries = Object.entries(progress); // [[seriesPath, chapterName], ...]
+
+    if (entries.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+
+    list.innerHTML = entries.map(([seriesPath, chapterName]) => {
+        const seriesName = seriesPath.split('/').pop();
+        const displayChapter = chapterName.replace(/\.pdf$/i, '');
+        const rootCfg = CONFIG.rootFolders.find(r => seriesPath.startsWith(r.path));
+        const iconHtml = rootCfg && rootCfg.isImage
+            ? `<img src="${rootCfg.icon}" alt="" style="width:20px;height:20px;object-fit:contain;border-radius:3px;">`
+            : (rootCfg ? rootCfg.icon : '📖');
+        const hasBookmark = getBookmark(seriesPath + '/' + chapterName) !== null;
+        return `<div class="cr-card" data-series="${escapeAttr(seriesPath)}" data-chapter="${escapeAttr(chapterName)}">
+            <div class="cr-icon">${iconHtml}</div>
+            <div class="cr-info">
+                <div class="cr-series">${escapeHtml(seriesName)}</div>
+                <div class="cr-chapter">${escapeHtml(displayChapter)}</div>
+            </div>
+            ${hasBookmark ? '<div class="cr-bookmark">🔖</div>' : ''}
+            <button class="cr-remove" data-series="${escapeAttr(seriesPath)}" aria-label="Remove from recent" title="Remove">×</button>
+        </div>`;
+    }).join('');
+}
+
+// ============================================
 // LIBRARY VIEW — event delegation
 // ============================================
 function renderLibrary() {
@@ -443,13 +482,7 @@ function openSeries(seriesPath, seriesName) {
                 </div>`;
             }).join('');
 
-            // Event delegation
-            chaptersList.addEventListener('click', e => {
-                const item = e.target.closest('.chapter-item');
-                if (!item) return;
-                state.navigationStack.push('chapters');
-                navigateChapter(parseInt(item.dataset.index));
-            });
+            // Event delegation handled by persistent listener in DOMContentLoaded
         }
 
         hideLoading();
@@ -459,6 +492,45 @@ function openSeries(seriesPath, seriesName) {
         showToast('Error loading chapters');
         console.error(err);
     });
+}
+
+// Refresh last-read highlight in the cached chapters list without re-fetching
+function refreshChaptersHighlight() {
+    const lastRead = getProgress(state.currentSeries);
+    const items = dom['chapters-list'].querySelectorAll('.chapter-item');
+    items.forEach((item, idx) => {
+        const chapter = state.chapters[idx];
+        if (!chapter) return;
+        const isLastRead = lastRead === chapter.name;
+        item.classList.toggle('last-read', isLastRead);
+        const sizeEl = item.querySelector('.chapter-size');
+        if (sizeEl) {
+            sizeEl.textContent = formatSize(chapter.size) + (isLastRead ? ' · Last read' : '');
+        }
+    });
+}
+
+// Refresh the last-read badge on the cached series card for the current series
+function refreshSeriesHighlight() {
+    const seriesPath = state.currentSeries;
+    if (!seriesPath) return;
+    const card = dom['series-list'].querySelector(`.series-card[data-path="${CSS.escape(seriesPath)}"]`);
+    if (!card) return;
+    const lastRead = getProgress(seriesPath);
+    let badge = card.querySelector('.series-badge');
+    if (lastRead) {
+        const text = '\u2197 ' + truncate(lastRead.replace(/\.pdf$/i, ''), 20);
+        if (badge) {
+            badge.textContent = text;
+        } else {
+            badge = document.createElement('div');
+            badge.className = 'series-badge';
+            badge.textContent = text;
+            card.appendChild(badge);
+        }
+    } else {
+        if (badge) badge.remove();
+    }
 }
 
 // ============================================
@@ -742,7 +814,6 @@ function downloadCurrentPdf() {
 // ---- CLEANUP ----
 function cleanupReader() {
     const container = dom['reader-container'];
-    container.innerHTML = '';
     container.classList.remove('text-mode');
     state.currentPdfBlob = null;
     state.isTextMode = false;
@@ -751,6 +822,8 @@ function cleanupReader() {
         dom['btn-bookmark'].classList.remove('active');
         dom['btn-bookmark'].style.display = 'none';
     }
+    // Defer heavy canvas cleanup so the view transition isn't blocked
+    setTimeout(() => { container.innerHTML = ''; }, 80);
 }
 
 // ---- BACK NAVIGATION ----
@@ -758,8 +831,14 @@ function goBack() {
     const prev = state.navigationStack.pop();
     if (prev === 'chapters') {
         cleanupReader();
+        refreshChaptersHighlight();
         showView('chapters');
+    } else if (prev === 'library-recent') {
+        cleanupReader();
+        renderContinueReading();
+        showView('library');
     } else if (prev === 'series') {
+        refreshSeriesHighlight();
         showView('series');
     } else {
         showView('library');
@@ -773,11 +852,56 @@ document.addEventListener('DOMContentLoaded', () => {
     cacheDom();
     initViews();
     renderLibrary();
+    renderContinueReading();
+
+    // Chapters list — single persistent listener
+    dom['chapters-list'].addEventListener('click', e => {
+        const item = e.target.closest('.chapter-item');
+        if (!item) return;
+        state.navigationStack.push('chapters');
+        navigateChapter(parseInt(item.dataset.index));
+    });
+
+    // Continue Reading — single persistent listener
+    dom['continue-reading-list'].addEventListener('click', e => {
+        // Remove button
+        const removeBtn = e.target.closest('.cr-remove');
+        if (removeBtn) {
+            e.stopPropagation();
+            const seriesPath = removeBtn.dataset.series;
+            const progress = loadProgress();
+            delete progress[seriesPath];
+            progressCache = progress;
+            try { localStorage.setItem('mangacloud_progress', JSON.stringify(progress)); } catch {}
+            renderContinueReading();
+            return;
+        }
+        // Card click — open chapter
+        const card = e.target.closest('.cr-card');
+        if (!card) return;
+        const seriesPath = card.dataset.series;
+        const chapterName = card.dataset.chapter;
+        const rootCfg = CONFIG.rootFolders.find(r => seriesPath.startsWith(r.path));
+
+        state.currentSeries = seriesPath;
+        state.currentRootConfig = rootCfg || null;
+        state.navigationStack = ['library-recent'];
+
+        showLoading('Loading...');
+        fetchGitHub(seriesPath).then(items => {
+            const { pdfs } = splitItems(items);
+            state.chapters = pdfs;
+            const idx = pdfs.findIndex(p => p.name === chapterName);
+            hideLoading();
+            navigateChapter(idx >= 0 ? idx : 0);
+        }).catch(() => { hideLoading(); showToast('Error loading chapter'); });
+    });
 
     // Back buttons
     dom['btn-back-library'].addEventListener('click', () => {
         state.navigationStack = [];
         showView('library');
+        renderContinueReading();
     });
     dom['btn-back-series'].addEventListener('click', goBack);
     dom['btn-back-chapters'].addEventListener('click', goBack);

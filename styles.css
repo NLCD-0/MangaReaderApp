@@ -176,7 +176,132 @@ body {
     font-weight: 400;
 }
 
+/* ---------- CONTINUE READING ---------- */
+.continue-reading {
+    padding: 0 20px 8px;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.continue-reading-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.continue-reading-list {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+}
+
+.continue-reading-list::-webkit-scrollbar {
+    display: none;
+}
+
+.cr-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    padding: 10px 14px;
+    background: var(--gradient-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    max-width: 220px;
+    min-width: 160px;
+    position: relative;
+    overflow: hidden;
+}
+
+.cr-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--gradient-accent);
+    transform: scaleX(0);
+    transition: var(--transition-fast);
+}
+
+.cr-card:hover {
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-glow);
+}
+
+.cr-card:hover::after {
+    transform: scaleX(1);
+}
+
+.cr-card:active {
+    transform: scale(0.97);
+}
+
+.cr-icon {
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.cr-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cr-series {
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+}
+
+.cr-chapter {
+    font-size: 0.72rem;
+    color: var(--accent);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.cr-bookmark {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.cr-remove {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: var(--transition-fast);
+    margin-left: 2px;
+}
+
+.cr-remove:hover {
+    color: var(--accent-secondary);
+    background: rgba(245, 91, 154, 0.12);
+}
+
 /* ---------- LIBRARY GRID ---------- */
+
 .library-grid {
     display: grid;
     grid-template-columns: 1fr;
