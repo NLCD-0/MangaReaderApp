@@ -916,12 +916,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Chapter navigation
     dom['btn-prev-chapter'].addEventListener('click', () => {
         const wasText = state.isTextMode;
+        const chapter = state.chapters[state.currentChapterIndex];
+        if (chapter) clearBookmark(chapter.path);
         const prevIdx = state.currentChapterIndex - 1;
         cleanupReader();
         wasText ? openChapterAsText(prevIdx) : openChapter(prevIdx);
     });
     dom['btn-next-chapter'].addEventListener('click', () => {
         const wasText = state.isTextMode;
+        const chapter = state.chapters[state.currentChapterIndex];
+        if (chapter) clearBookmark(chapter.path);
         const nextIdx = state.currentChapterIndex + 1;
         cleanupReader();
         wasText ? openChapterAsText(nextIdx) : openChapter(nextIdx);
