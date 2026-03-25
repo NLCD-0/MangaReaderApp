@@ -33,7 +33,8 @@ const state = {
     headerVisible: true,
     hideTimer: null,
     navigationStack: [],
-    isTextMode: false
+    isTextMode: false,
+    renderGen: 0
 };
 
 function isAo3Mode() {
@@ -52,7 +53,7 @@ function cacheDom() {
         'btn-back-library', 'btn-back-series', 'btn-back-chapters',
         'btn-open-settings', 'btn-close-settings', 'settings-modal',
         'btn-save-token', 'btn-reset-token', 'token-input',
-        'loading-overlay', 'loader-text', 'toast'
+        'loading-overlay', 'loader-text', 'toast', 'btn-bookmark'
     ];
     ids.forEach(id => { dom[id] = document.getElementById(id); });
 }
@@ -156,6 +157,72 @@ function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+// ---- BOOKMARKS ----
+let bookmarkCache = null;
+
+function loadBookmarks() {
+    if (bookmarkCache) return bookmarkCache;
+    try {
+        bookmarkCache = JSON.parse(localStorage.getItem('mangacloud_bookmarks') || '{}');
+    } catch { bookmarkCache = {}; }
+    return bookmarkCache;
+}
+
+function saveBookmark(chapterPath, scrollY) {
+    const bm = loadBookmarks();
+    bm[chapterPath] = scrollY;
+    bookmarkCache = bm;
+    try {
+        localStorage.setItem('mangacloud_bookmarks', JSON.stringify(bm));
+    } catch { /* ignore */ }
+}
+
+function getBookmark(chapterPath) {
+    const val = loadBookmarks()[chapterPath];
+    return (val !== undefined) ? val : null;
+}
+
+function clearBookmark(chapterPath) {
+    const bm = loadBookmarks();
+    delete bm[chapterPath];
+    bookmarkCache = bm;
+    try {
+        localStorage.setItem('mangacloud_bookmarks', JSON.stringify(bm));
+    } catch { /* ignore */ }
+}
+
+function isBookmarkableMode() {
+    return state.isTextMode ||
+        (state.currentRootConfig && state.currentRootConfig.path === 'Novela');
+}
+
+function updateBookmarkBtn() {
+    if (!dom['btn-bookmark']) return;
+    const chapter = state.chapters[state.currentChapterIndex];
+    if (!chapter || !isBookmarkableMode()) {
+        dom['btn-bookmark'].classList.remove('active');
+        dom['btn-bookmark'].style.display = 'none';
+        return;
+    }
+    dom['btn-bookmark'].style.display = 'flex';
+    const marked = getBookmark(chapter.path) !== null;
+    dom['btn-bookmark'].classList.toggle('active', marked);
+}
+
+function toggleBookmark() {
+    const chapter = state.chapters[state.currentChapterIndex];
+    if (!chapter) return;
+    if (getBookmark(chapter.path) !== null) {
+        clearBookmark(chapter.path);
+        updateBookmarkBtn();
+        showToast('Bookmark removed');
+    } else {
+        saveBookmark(chapter.path, window.scrollY);
+        updateBookmarkBtn();
+        showToast('Position bookmarked! 🔖');
+    }
 }
 
 // ---- READING PROGRESS ----
@@ -403,18 +470,24 @@ function openChapter(index) {
     state.currentChapterIndex = index;
     state.isTextMode = false;
     const chapter = state.chapters[index];
+    const gen = ++state.renderGen; // invalidates any previous render chain
 
     showLoading('Downloading ' + chapter.name + '...');
 
     initPdfJs()
         .then(() => fetchPdfBlob(chapter.path))
         .then(blob => {
+            if (gen !== state.renderGen) return Promise.reject('stale');
             state.currentPdfBlob = blob;
             showLoading('Rendering pages...');
             return blob.arrayBuffer();
         })
-        .then(buf => pdfjsLib.getDocument({ data: buf }).promise)
+        .then(buf => {
+            if (gen !== state.renderGen) return Promise.reject('stale');
+            return pdfjsLib.getDocument({ data: buf }).promise;
+        })
         .then(pdf => {
+            if (gen !== state.renderGen) return;
             const totalPages = pdf.numPages;
             const container = dom['reader-container'];
             container.innerHTML = '';
@@ -429,14 +502,25 @@ function openChapter(index) {
             const frag = document.createDocumentFragment();
 
             const renderPage = pageNum => {
+                if (gen !== state.renderGen) return; // stale — abort silently
                 if (pageNum > totalPages) {
                     container.appendChild(frag);
                     finishReader(chapter, index);
                     startHideTimer();
+                    updateBookmarkBtn();
+                    // Restore bookmarked scroll position if any
+                    const savedY = getBookmark(chapter.path);
+                    if (savedY !== null) {
+                        setTimeout(() => {
+                            window.scrollTo({ top: savedY, behavior: 'smooth' });
+                            showToast('📖 Jumped to bookmarked position');
+                        }, 150);
+                    }
                     return;
                 }
 
                 pdf.getPage(pageNum).then(page => {
+                    if (gen !== state.renderGen) return;
                     const unscaled = page.getViewport({ scale: 1 });
                     const scale = (containerWidth * dpr) / unscaled.width;
                     const viewport = page.getViewport({ scale });
@@ -449,6 +533,7 @@ function openChapter(index) {
                     frag.appendChild(canvas);
 
                     page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise.then(() => {
+                        if (gen !== state.renderGen) return;
                         dom['reader-progress'].textContent = `Rendered ${pageNum} / ${totalPages}`;
                         // Flush fragment every 5 pages for progressive display
                         if (pageNum % 5 === 0) {
@@ -462,6 +547,7 @@ function openChapter(index) {
             renderPage(1);
         })
         .catch(err => {
+            if (err === 'stale') return; // expected — suppress
             hideLoading();
             showToast('Error loading PDF');
             console.error(err);
@@ -562,6 +648,15 @@ function openChapterAsText(index) {
                 if (pageNum > totalPages) {
                     container.appendChild(frag);
                     finishReader(chapter, index);
+                    updateBookmarkBtn();
+                    // Restore bookmarked position if any
+                    const savedY = getBookmark(chapter.path);
+                    if (savedY !== null) {
+                        setTimeout(() => {
+                            window.scrollTo({ top: savedY, behavior: 'smooth' });
+                            showToast('📖 Jumped to bookmarked position');
+                        }, 150);
+                    }
                     return;
                 }
 
@@ -652,6 +747,10 @@ function cleanupReader() {
     state.currentPdfBlob = null;
     state.isTextMode = false;
     clearTimeout(state.hideTimer);
+    if (dom['btn-bookmark']) {
+        dom['btn-bookmark'].classList.remove('active');
+        dom['btn-bookmark'].style.display = 'none';
+    }
 }
 
 // ---- BACK NAVIGATION ----
@@ -682,6 +781,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     dom['btn-back-series'].addEventListener('click', goBack);
     dom['btn-back-chapters'].addEventListener('click', goBack);
+
+    // Bookmark
+    dom['btn-bookmark'].addEventListener('click', e => { e.stopPropagation(); toggleBookmark(); });
+    dom['btn-bookmark'].style.display = 'none'; // hidden until text reader opens
 
     // Download
     dom['btn-download'].addEventListener('click', downloadCurrentPdf);

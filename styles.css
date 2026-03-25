@@ -476,6 +476,41 @@ body {
     transform: scale(0.9);
 }
 
+.btn-bookmark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.btn-bookmark:hover {
+    background: var(--bg-card-hover);
+    color: var(--accent);
+}
+
+.btn-bookmark.active {
+    background: rgba(124, 91, 245, 0.18);
+    color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.btn-bookmark.active svg path {
+    fill: var(--accent);
+    stroke: var(--accent);
+}
+
+.btn-bookmark:active {
+    transform: scale(0.9);
+}
+
 .reader-container {
     display: flex;
     flex-direction: column;
@@ -845,20 +880,15 @@ body {
 
 /* ---------- TEXT READER (AO3 Mode) ---------- */
 .reader-container.text-mode {
-    padding: calc(var(--header-height) + var(--safe-top) + 16px) 20px 100px;
+    padding: calc(var(--header-height) + var(--safe-top) + 16px) 0 100px;
     align-items: stretch;
-    background: var(--bg-primary);
+    background: #ffffff;
 }
 
 .text-page {
-    max-width: 700px;
     width: 100%;
-    margin: 0 auto 32px;
     padding: 24px 28px;
     background: #ffffff;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-card);
 }
 
 .text-page p {
@@ -882,11 +912,7 @@ body {
     font-size: 0.9rem;
 }
 
-/* Remove page separators in text mode */
-.reader-container.text-mode .text-page + .text-page {
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 28px;
-}
+/* Page separators removed — continuous text flow */
 
 /* Last-read highlight for chapter items */
 .chapter-item.last-read {
