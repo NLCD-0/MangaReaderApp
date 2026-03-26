@@ -312,7 +312,7 @@ function renderContinueReading() {
     if (!section || !list) return;
 
     const progress = loadProgress();
-    const entries = Object.entries(progress); // [[seriesPath, chapterName], ...]
+    const entries = Object.entries(progress);
 
     if (entries.length === 0) {
         section.style.display = 'none';
@@ -671,9 +671,8 @@ function extractParagraphs(textContent) {
         const item = items[i];
         const str = item.str;
 
-        // Whitespace-only items: preserve spacing but NEVER flush the line.
-        // PDF.js emits a space between regular→bold/italic spans on the same
-        // visual line; flushing here was the root cause of spurious newlines.
+        // Whitespace-only items: preserve spacing but never flush the line.
+        // PDF.js emits spaces between style runs on the same visual line.
         if (!str || str.trim() === '') {
             if (str && currentLine && !currentLine.endsWith(' ')) {
                 currentLine += ' ';
@@ -741,12 +740,6 @@ function extractParagraphs(textContent) {
         }
 
         if (para && line.length > 0) {
-            // If the accumulated para is itself a separator, flush it first.
-            if (isSectionBreak(para)) {
-                paragraphs.push(para.trim());
-                para = line;
-                continue;
-            }
             const prevEnds = /[.!?:;"'»)\]]$/.test(para);
             const lineStarts = /^[A-ZÀ-ÖØ-Þ"'«(\[]/.test(line);
             const isShort = para.length < 60;
@@ -765,8 +758,6 @@ function extractParagraphs(textContent) {
 
     return paragraphs;
 }
-
-
 
 function openChapterAsText(index) {
     if (index < 0 || index >= state.chapters.length) return;
