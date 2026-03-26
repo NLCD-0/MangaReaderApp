@@ -634,23 +634,56 @@ function extractParagraphs(textContent) {
     const lines = [];
     let currentLine = '';
     let lastY = null;
+    let lastHeight = null;
+    let lastX = null;
+    let lastWidth = null;
+
+    const flushLine = () => {
+        if (currentLine.trim()) lines.push(currentLine.trim());
+        currentLine = '';
+        lastY = null; lastX = null; lastWidth = null;
+    };
 
     for (let i = 0, len = items.length; i < len; i++) {
         const item = items[i];
         const str = item.str;
 
-        if (str.trim() === '') {
-            if (currentLine.trim()) {
-                lines.push(currentLine.trim());
-                currentLine = '';
+        // Whitespace-only items: preserve spacing but NEVER flush the line.
+        // PDF.js emits a space between regular→bold/italic spans on the same
+        // visual line; flushing here was the root cause of spurious newlines.
+        if (!str || str.trim() === '') {
+            if (str && currentLine && !currentLine.endsWith(' ')) {
+                currentLine += ' ';
             }
+            // hasEOL on an empty/space item is a genuine line-end signal.
+            if (item.hasEOL) flushLine();
             continue;
         }
 
         const y = item.transform ? item.transform[5] : null;
+        const x = item.transform ? item.transform[4] : null;
+        const height = (item.height && item.height > 0) ? item.height : (lastHeight || 8);
+        const threshold = height * 0.5;
 
-        if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) {
-            if (currentLine.trim()) lines.push(currentLine.trim());
+        // hasEOL is the most reliable line-break signal from PDF.js.
+        // If the *previous* text item declared end-of-line, this item starts
+        // a new line regardless of coordinates.
+        const prevHadEOL = (i > 0 && items[i - 1].hasEOL);
+
+        // Y-delta check: different visual line when delta > 50% of font height.
+        const sameLineByY = !prevHadEOL &&
+            (lastY === null || y === null || Math.abs(y - lastY) <= threshold);
+
+        // X-continuity fallback: even if Y disagrees, if the new item starts
+        // right where the previous one ended it's the same line.
+        let sameLineByX = false;
+        if (!sameLineByY && !prevHadEOL && lastX !== null && lastWidth !== null && x !== null) {
+            const prevEndX = lastX + lastWidth;
+            sameLineByX = x >= prevEndX - height * 2 && x <= prevEndX + height * 4;
+        }
+
+        if (!sameLineByY && !sameLineByX) {
+            flushLine();
             currentLine = str;
         } else {
             if (currentLine && !currentLine.endsWith(' ') && !str.startsWith(' ')) {
@@ -658,7 +691,14 @@ function extractParagraphs(textContent) {
             }
             currentLine += str;
         }
+
         lastY = y;
+        lastX = x;
+        lastWidth = (item.width != null) ? item.width : null;
+        if (item.height && item.height > 0) lastHeight = item.height;
+
+        // hasEOL on the current item: flush after appending.
+        if (item.hasEOL) flushLine();
     }
     if (currentLine.trim()) lines.push(currentLine.trim());
 
@@ -715,9 +755,21 @@ function openChapterAsText(index) {
             dom['reader-progress'].textContent = totalPages + ' pages';
 
             const frag = document.createDocumentFragment();
+            // Tracks an incomplete paragraph carried over from the previous page.
+            let pendingLastPara = '';
 
             const extractPage = pageNum => {
                 if (pageNum > totalPages) {
+                    // Flush any remaining pending paragraph as its own element.
+                    if (pendingLastPara) {
+                        const lastPageDiv = document.createElement('div');
+                        lastPageDiv.className = 'text-page';
+                        const p = document.createElement('p');
+                        p.textContent = pendingLastPara;
+                        lastPageDiv.appendChild(p);
+                        frag.appendChild(lastPageDiv);
+                        pendingLastPara = '';
+                    }
                     container.appendChild(frag);
                     finishReader(chapter, index);
                     updateBookmarkBtn();
@@ -738,22 +790,44 @@ function openChapterAsText(index) {
                         const pageDiv = document.createElement('div');
                         pageDiv.className = 'text-page';
 
-                        const paragraphs = extractParagraphs(textContent);
+                        let paragraphs = extractParagraphs(textContent);
+
+                        // Merge carry-over from previous page with this page's first paragraph.
+                        if (pendingLastPara) {
+                            if (paragraphs.length > 0) {
+                                // Check if the first paragraph continues the pending one.
+                                const startsLower = /^[a-zà-öø-þ,;:—–]/.test(paragraphs[0]);
+                                const prevIncomplete = !/[.!?…"'»)\]]\s*$/.test(pendingLastPara);
+                                if (prevIncomplete || startsLower) {
+                                    paragraphs[0] = pendingLastPara + ' ' + paragraphs[0];
+                                } else {
+                                    paragraphs.unshift(pendingLastPara);
+                                }
+                            }
+                            // If no paragraphs on this page, keep pending for the next page.
+                            pendingLastPara = '';
+                        }
+
+                        // If the last paragraph doesn't end a sentence, hold it for the next page.
+                        if (paragraphs.length > 0 && pageNum < totalPages) {
+                            const last = paragraphs[paragraphs.length - 1];
+                            if (!/[.!?…"'»)\]]\s*$/.test(last)) {
+                                pendingLastPara = last;
+                                paragraphs = paragraphs.slice(0, -1);
+                            }
+                        }
 
                         if (paragraphs.length === 0) {
-                            const p = document.createElement('p');
-                            p.className = 'text-empty-page';
-                            p.textContent = `— Page ${pageNum} (no text) —`;
-                            pageDiv.appendChild(p);
+                            // Page had no complete paragraphs (all carried over); skip the div.
                         } else {
                             for (let i = 0; i < paragraphs.length; i++) {
                                 const p = document.createElement('p');
                                 p.textContent = paragraphs[i];
                                 pageDiv.appendChild(p);
                             }
+                            frag.appendChild(pageDiv);
                         }
 
-                        frag.appendChild(pageDiv);
                         dom['reader-progress'].textContent = `Extracted ${pageNum} / ${totalPages}`;
 
                         // Flush every 10 pages for progressive display
