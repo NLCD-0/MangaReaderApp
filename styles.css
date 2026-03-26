@@ -1037,10 +1037,26 @@ body {
     font-size: 0.9rem;
 }
 
-/* Page separators removed — continuous text flow */
+/* Decorative section-break separator (replaces raw "- - -" / "* ~ *" text) */
+.text-section-break {
+    border: none;
+    border-top: 1px solid #d0d0d0;
+    width: 40%;
+    margin: 24px auto;
+}
 
 /* Last-read highlight for chapter items */
 .chapter-item.last-read {
     border-color: var(--border-active);
     background: rgba(124, 91, 245, 0.08);
+}
+
+/* Folder items inside a mixed folder/PDF view */
+.chapter-item.chapter-folder {
+    border-color: rgba(124, 91, 245, 0.2);
+}
+
+.chapter-folder-icon {
+    background: rgba(124, 91, 245, 0.15);
+    font-size: 1.1rem;
 }

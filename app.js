@@ -388,14 +388,6 @@ function renderSeriesCards(container, items, iconHtml) {
     }).join('');
 }
 
-function attachSeriesListeners(container) {
-    container.addEventListener('click', e => {
-        const card = e.target.closest('.series-card');
-        if (!card) return;
-        state.navigationStack.push('series');
-        openSeries(card.dataset.path, card.dataset.name);
-    });
-}
 
 function openFolder(folderPath) {
     showLoading('Loading collection...');
@@ -424,7 +416,6 @@ function openFolder(folderPath) {
             list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">This folder is empty</div></div>';
         }
 
-        attachSeriesListeners(list);
         hideLoading();
         showView('series');
     }).catch(err => {
@@ -444,7 +435,7 @@ function openSeries(seriesPath, seriesName) {
     fetchGitHub(seriesPath).then(items => {
         const { folders: subfolders, pdfs } = splitItems(items);
 
-        // Deeper navigation if only subfolders
+        // Pure subfolder level: use the nicer series card grid view.
         if (subfolders.length > 0 && pdfs.length === 0) {
             hideLoading();
             state.currentFolder = seriesPath;
@@ -452,44 +443,64 @@ function openSeries(seriesPath, seriesName) {
             dom['series-subtitle'].textContent = subfolders.length + ' items';
             const list = dom['series-list'];
             renderSeriesCards(list, subfolders, getRootIconHtml(state.currentRootConfig));
-            attachSeriesListeners(list);
             showView('series');
             return;
         }
 
+        // Mixed (folders + PDFs) or PDF-only: show in chapters view.
+        // Folders appear at the top as navigable items; PDFs follow as numbered chapters.
         state.chapters = pdfs;
         dom['chapters-title'].textContent = seriesName;
-        dom['chapters-subtitle'].textContent = pdfs.length + ' chapters';
+        const subtitle = [
+            subfolders.length > 0 ? subfolders.length + ' folders' : '',
+            pdfs.length > 0 ? pdfs.length + ' chapters' : ''
+        ].filter(Boolean).join(' · ');
+        dom['chapters-subtitle'].textContent = subtitle || 'Empty';
 
         const chaptersList = dom['chapters-list'];
+        const lastRead = getProgress(seriesPath);
 
-        if (pdfs.length === 0) {
-            chaptersList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">No chapters found</div></div>';
+        // Render folder items first.
+        const folderHtml = subfolders.map(folder => `
+            <div class="chapter-item chapter-folder" data-type="folder"
+                 data-path="${escapeAttr(folder.path)}" data-name="${escapeAttr(folder.name)}">
+                <div class="chapter-number chapter-folder-icon">${getRootIconHtml(state.currentRootConfig)}</div>
+                <div class="chapter-info">
+                    <div class="chapter-name">${escapeHtml(folder.name)}</div>
+                    <div class="chapter-size">Folder</div>
+                </div>
+                <div class="chapter-read-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </div>
+            </div>`).join('');
+
+        // Render PDF items after folders.
+        const pdfHtml = pdfs.map((pdf, idx) => {
+            const displayName = pdf.name.replace(/\.pdf$/i, '');
+            const isLastRead = lastRead === pdf.name;
+            return `<div class="chapter-item${isLastRead ? ' last-read' : ''}" data-type="pdf" data-index="${idx}">
+                <div class="chapter-number">${idx + 1}</div>
+                <div class="chapter-info">
+                    <div class="chapter-name">${escapeHtml(displayName)}</div>
+                    <div class="chapter-size">${formatSize(pdf.size)}${isLastRead ? ' · Last read' : ''}</div>
+                </div>
+                <div class="chapter-read-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </div>
+            </div>`;
+        }).join('');
+
+        if (!folderHtml && !pdfHtml) {
+            chaptersList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">Empty folder</div></div>';
         } else {
-            const lastRead = getProgress(seriesPath);
-            chaptersList.innerHTML = pdfs.map((pdf, idx) => {
-                const displayName = pdf.name.replace(/\.pdf$/i, '');
-                const isLastRead = lastRead === pdf.name;
-                return `<div class="chapter-item${isLastRead ? ' last-read' : ''}" data-index="${idx}">
-                    <div class="chapter-number">${idx + 1}</div>
-                    <div class="chapter-info">
-                        <div class="chapter-name">${escapeHtml(displayName)}</div>
-                        <div class="chapter-size">${formatSize(pdf.size)}${isLastRead ? ' · Last read' : ''}</div>
-                    </div>
-                    <div class="chapter-read-icon">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-                    </div>
-                </div>`;
-            }).join('');
-
-            // Event delegation handled by persistent listener in DOMContentLoaded
+            chaptersList.innerHTML = folderHtml + pdfHtml;
         }
 
         hideLoading();
         showView('chapters');
     }).catch(err => {
         hideLoading();
-        showToast('Error loading chapters');
+        showToast('Error loading folder');
         console.error(err);
     });
 }
@@ -629,6 +640,18 @@ function openChapter(index) {
 // ============================================
 // TEXT READER (AO3 mode)
 // ============================================
+
+// A paragraph is a section-break separator if it contains NO letters or digits,
+// with the sole exception of strings made only of dots/ellipses (e.g. "..." or "……").
+function isSectionBreak(text) {
+    const t = text.trim();
+    if (!t) return false;
+    // Exception: purely dots/ellipsis are text punctuation, not separators.
+    if (/^[.\u2026\u22EF]+$/.test(t)) return false;
+    // Any string with no letters or digits is a separator.
+    return !/[a-zA-Z0-9\u00C0-\u00FF]/.test(t);
+}
+
 function extractParagraphs(textContent) {
     const items = textContent.items;
     const lines = [];
@@ -708,7 +731,22 @@ function extractParagraphs(textContent) {
 
     for (let i = 0, len = lines.length; i < len; i++) {
         const line = lines[i];
+
+        // Section-break separators are always isolated — never merged with text.
+        if (isSectionBreak(line)) {
+            if (para.trim()) paragraphs.push(para.trim());
+            paragraphs.push(line.trim());
+            para = '';
+            continue;
+        }
+
         if (para && line.length > 0) {
+            // If the accumulated para is itself a separator, flush it first.
+            if (isSectionBreak(para)) {
+                paragraphs.push(para.trim());
+                para = line;
+                continue;
+            }
             const prevEnds = /[.!?:;"'»)\]]$/.test(para);
             const lineStarts = /^[A-ZÀ-ÖØ-Þ"'«(\[]/.test(line);
             const isShort = para.length < 60;
@@ -727,6 +765,8 @@ function extractParagraphs(textContent) {
 
     return paragraphs;
 }
+
+
 
 function openChapterAsText(index) {
     if (index < 0 || index >= state.chapters.length) return;
@@ -809,9 +849,10 @@ function openChapterAsText(index) {
                         }
 
                         // If the last paragraph doesn't end a sentence, hold it for the next page.
+                        // Never carry over a section-break separator.
                         if (paragraphs.length > 0 && pageNum < totalPages) {
                             const last = paragraphs[paragraphs.length - 1];
-                            if (!/[.!?…"'»)\]]\s*$/.test(last)) {
+                            if (!isSectionBreak(last) && !/[.!?…"'»)\]]\s*$/.test(last)) {
                                 pendingLastPara = last;
                                 paragraphs = paragraphs.slice(0, -1);
                             }
@@ -821,9 +862,15 @@ function openChapterAsText(index) {
                             // Page had no complete paragraphs (all carried over); skip the div.
                         } else {
                             for (let i = 0; i < paragraphs.length; i++) {
-                                const p = document.createElement('p');
-                                p.textContent = paragraphs[i];
-                                pageDiv.appendChild(p);
+                                if (isSectionBreak(paragraphs[i])) {
+                                    const hr = document.createElement('hr');
+                                    hr.className = 'text-section-break';
+                                    pageDiv.appendChild(hr);
+                                } else {
+                                    const p = document.createElement('p');
+                                    p.textContent = paragraphs[i];
+                                    pageDiv.appendChild(p);
+                                }
                             }
                             frag.appendChild(pageDiv);
                         }
@@ -901,18 +948,61 @@ function cleanupReader() {
 }
 
 // ---- BACK NAVIGATION ----
+// Captures the current view's DOM + state into the navigation stack so goBack()
+// can restore it instantly without re-fetching from GitHub.
+function captureAndPush(view) {
+    if (view === 'series') {
+        state.navigationStack.push({
+            view: 'series',
+            html: dom['series-list'].innerHTML,
+            title: dom['series-title'].textContent,
+            subtitle: dom['series-subtitle'].textContent,
+            currentFolder: state.currentFolder
+        });
+    } else if (view === 'chapters') {
+        state.navigationStack.push({
+            view: 'chapters',
+            html: dom['chapters-list'].innerHTML,
+            title: dom['chapters-title'].textContent,
+            subtitle: dom['chapters-subtitle'].textContent,
+            chapters: state.chapters.slice(),
+            currentSeries: state.currentSeries
+        });
+    } else {
+        state.navigationStack.push(view);
+    }
+}
+
 function goBack() {
     const prev = state.navigationStack.pop();
-    if (prev === 'chapters') {
+    const view = (prev && typeof prev === 'object') ? prev.view : prev;
+
+    if (view === 'chapters') {
         cleanupReader();
-        refreshChaptersHighlight();
+        if (prev && prev.html !== undefined) {
+            // Restore snapshot — no network round-trip needed.
+            dom['chapters-list'].innerHTML  = prev.html;
+            dom['chapters-title'].textContent   = prev.title;
+            dom['chapters-subtitle'].textContent = prev.subtitle;
+            state.chapters = prev.chapters;
+            state.currentSeries = prev.currentSeries;
+        } else {
+            refreshChaptersHighlight();
+        }
         showView('chapters');
-    } else if (prev === 'library-recent') {
+    } else if (view === 'library-recent') {
         cleanupReader();
         renderContinueReading();
         showView('library');
-    } else if (prev === 'series') {
-        refreshSeriesHighlight();
+    } else if (view === 'series') {
+        if (prev && prev.html !== undefined) {
+            dom['series-list'].innerHTML     = prev.html;
+            dom['series-title'].textContent      = prev.title;
+            dom['series-subtitle'].textContent   = prev.subtitle;
+            state.currentFolder = prev.currentFolder;
+        } else {
+            refreshSeriesHighlight();
+        }
         showView('series');
     } else {
         showView('library');
@@ -929,11 +1019,25 @@ document.addEventListener('DOMContentLoaded', () => {
     renderContinueReading();
 
     // Chapters list — single persistent listener
+    // Routes folder items to openSeries, PDF items to navigateChapter.
     dom['chapters-list'].addEventListener('click', e => {
         const item = e.target.closest('.chapter-item');
         if (!item) return;
-        state.navigationStack.push('chapters');
-        navigateChapter(parseInt(item.dataset.index));
+        if (item.dataset.type === 'folder') {
+            captureAndPush('chapters');
+            openSeries(item.dataset.path, item.dataset.name);
+        } else {
+            captureAndPush('chapters');
+            navigateChapter(parseInt(item.dataset.index));
+        }
+    });
+
+    // Series list — single persistent listener (handles any depth of folder navigation)
+    dom['series-list'].addEventListener('click', e => {
+        const card = e.target.closest('.series-card');
+        if (!card) return;
+        captureAndPush('series');
+        openSeries(card.dataset.path, card.dataset.name);
     });
 
     // Continue Reading — single persistent listener
