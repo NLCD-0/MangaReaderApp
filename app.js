@@ -110,7 +110,8 @@ function cacheDom() {
         'loading-overlay', 'loader-text', 'toast', 'btn-bookmark',
         'continue-reading', 'continue-reading-list',
         'ao3-mode-selector', 'btn-ao3-text', 'btn-ao3-pdf',
-        'btn-toggle-mode', 'toggle-mode-icon', 'toggle-mode-text'
+        'btn-toggle-mode', 'toggle-mode-icon', 'toggle-mode-text',
+        'btn-download-all'
     ];
     ids.forEach(id => { dom[id] = document.getElementById(id); });
 }
@@ -460,6 +461,13 @@ function renderSeriesCards(container, items, iconHtml) {
             ? `<div class="series-badge">↗ ${truncate(lastRead.replace(/\.pdf$/i, ''), 20)}</div>`
             : '';
         return `<div class="series-card" data-path="${escapeAttr(f.path)}" data-name="${escapeAttr(f.name)}">
+            <button class="series-download-btn" data-path="${escapeAttr(f.path)}" data-name="${escapeAttr(f.name)}" aria-label="Download ${escapeAttr(f.name)} as ZIP" title="Download folder as ZIP">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+            </button>
             <div class="series-emoji">${iconHtml}</div>
             <div class="series-name">${escapeHtml(f.name)}</div>
             ${badgeHtml}
@@ -1061,6 +1069,121 @@ function downloadCurrentPdf() {
     }
 }
 
+// ---- FOLDER ZIP DOWNLOAD ----
+let jszipPromise = null;
+function initJsZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    if (jszipPromise) return jszipPromise;
+    jszipPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+        script.onload = () => resolve(window.JSZip);
+        script.onerror = err => {
+            jszipPromise = null;
+            reject(err);
+        };
+        document.head.appendChild(script);
+    });
+    return jszipPromise;
+}
+
+async function collectPdfsRecursively(folderPath) {
+    const items = await fetchGitHub(folderPath);
+    const pdfs = [];
+    for (const item of items) {
+        if (item.type === 'file' && item.name.toLowerCase().endsWith('.pdf')) {
+            pdfs.push(item);
+        } else if (item.type === 'dir') {
+            const sub = await collectPdfsRecursively(item.path);
+            pdfs.push(...sub);
+        }
+    }
+    return pdfs;
+}
+
+let isDownloadingFolder = false;
+async function downloadFolderAsZip(folderPath, folderName, btnEl) {
+    if (!getToken()) {
+        showToast('Please configure your GitHub token first ⚙️');
+        return;
+    }
+    if (isDownloadingFolder) {
+        showToast('A download is already in progress...');
+        return;
+    }
+
+    isDownloadingFolder = true;
+    if (btnEl) {
+        btnEl.classList.add('downloading');
+        btnEl.disabled = true;
+    }
+
+    const safeName = (folderName || 'collection').replace(/[\\/:*?"<>|]/g, '_');
+
+    try {
+        showLoading(`Preparing ${folderName}...`);
+        await initJsZip();
+
+        let pdfs = [];
+        if (state.currentSeries === folderPath && state.chapters && state.chapters.length > 0) {
+            pdfs = state.chapters.slice();
+        } else {
+            showLoading(`Scanning folder ${folderName}...`);
+            pdfs = await collectPdfsRecursively(folderPath);
+        }
+
+        if (pdfs.length === 0) {
+            hideLoading();
+            showToast(`No PDFs found in ${folderName}`);
+            return;
+        }
+
+        const zip = new JSZip();
+        const total = pdfs.length;
+
+        for (let i = 0; i < total; i++) {
+            const pdf = pdfs[i];
+            const displayName = pdf.name.replace(/\.pdf$/i, '');
+            showLoading(`Downloading (${i + 1}/${total}):\n${truncate(displayName, 26)}`);
+            const blob = await fetchPdfBlob(pdf.path);
+            const relPath = pdf.path.startsWith(folderPath + '/')
+                ? pdf.path.substring(folderPath.length + 1)
+                : pdf.name;
+            zip.file(relPath, blob);
+        }
+
+        showLoading(`Creating ZIP archive for ${folderName}...`);
+        const zipBlob = await zip.generateAsync({
+            type: 'blob',
+            compression: 'STORE'
+        }, (meta) => {
+            showLoading(`Packaging ZIP: ${Math.round(meta.percent)}%`);
+        });
+
+        const url = URL.createObjectURL(zipBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${safeName}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 3000);
+
+        hideLoading();
+        showToast(`Downloaded ${safeName}.zip (${total} files)! 📦`);
+    } catch (err) {
+        console.error('Folder download error:', err);
+        hideLoading();
+        showToast('Download error: ' + (err.message || 'Network error'));
+    } finally {
+        isDownloadingFolder = false;
+        if (btnEl) {
+            btnEl.classList.remove('downloading');
+            btnEl.disabled = false;
+        }
+    }
+}
+
 // ---- CLEANUP ----
 function cleanupReader() {
     const container = dom['reader-container'];
@@ -1187,11 +1310,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Series list — single persistent listener (handles any depth of folder navigation)
     dom['series-list'].addEventListener('click', e => {
+        const downloadBtn = e.target.closest('.series-download-btn');
+        if (downloadBtn) {
+            e.stopPropagation();
+            downloadFolderAsZip(downloadBtn.dataset.path, downloadBtn.dataset.name, downloadBtn);
+            return;
+        }
+
         const card = e.target.closest('.series-card');
         if (!card) return;
         captureAndPush('series');
         openSeries(card.dataset.path, card.dataset.name);
     });
+
+    // Download All (ZIP) button in chapters view header
+    if (dom['btn-download-all']) {
+        dom['btn-download-all'].addEventListener('click', () => {
+            if (!state.currentSeries) return;
+            const seriesName = state.currentSeries.split('/').pop();
+            downloadFolderAsZip(state.currentSeries, seriesName, dom['btn-download-all']);
+        });
+    }
 
     // Continue Reading — single persistent listener
     dom['continue-reading-list'].addEventListener('click', e => {

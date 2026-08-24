@@ -654,6 +654,90 @@ body {
     box-shadow: 0 2px 8px var(--accent-glow);
 }
 
+/* ---------- DOWNLOAD ALL / FOLDER DOWNLOAD BUTTONS ---------- */
+.btn-download-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.btn-download-all:hover {
+    background: var(--gradient-accent);
+    border-color: transparent;
+    color: #ffffff;
+    box-shadow: 0 2px 10px var(--accent-glow);
+    transform: translateY(-1px);
+}
+
+.btn-download-all:active {
+    transform: scale(0.96);
+}
+
+.btn-download-all.downloading {
+    opacity: 0.75;
+    pointer-events: none;
+}
+
+.btn-download-all.downloading svg {
+    animation: spin 0.8s linear infinite;
+}
+
+.series-download-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(10, 10, 15, 0.75);
+    backdrop-filter: blur(4px);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition-fast);
+    opacity: 0.75;
+    z-index: 5;
+}
+
+.series-download-btn:hover {
+    opacity: 1;
+    background: var(--accent);
+    border-color: transparent;
+    color: #ffffff;
+    transform: scale(1.1);
+    box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.series-download-btn:active {
+    transform: scale(0.95);
+}
+
+.series-download-btn.downloading {
+    opacity: 0.9;
+    pointer-events: none;
+    background: var(--accent);
+    color: #ffffff;
+}
+
+.series-download-btn.downloading svg {
+    animation: spin 0.8s linear infinite;
+}
+
 /* ---------- READER ---------- */
 .reader-header {
     position: fixed;
