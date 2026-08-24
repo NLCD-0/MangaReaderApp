@@ -1,5 +1,5 @@
 // Service Worker — Cache app shell only, NOT PDFs
-const CACHE_NAME = 'mangacloud-v5';
+const CACHE_NAME = 'mangacloud-v8';
 const SHELL_ASSETS = [
     './',
     './index.html',
@@ -28,9 +28,9 @@ self.addEventListener('activate', event => {
 });
 
 // Fetch strategy:
-// - App shell: stale-while-revalidate (fast load + background update)
 // - GitHub API / PDF downloads: network-only (never cache)
 // - CDN assets (pdf.js, fonts): cache-first
+// - App shell: network-first (always get latest version, cache fallback when offline)
 self.addEventListener('fetch', event => {
     const url = new URL(event.request.url);
 
@@ -57,18 +57,14 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    // Stale-while-revalidate for app shell
+    // Network-first for app shell (HTML, CSS, JS)
     event.respondWith(
-        caches.match(event.request).then(cached => {
-            const fetchPromise = fetch(event.request).then(response => {
-                if (response.ok) {
-                    const clone = response.clone();
-                    caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-                }
-                return response;
-            }).catch(() => cached);
-
-            return cached || fetchPromise;
-        })
+        fetch(event.request).then(response => {
+            if (response.ok) {
+                const clone = response.clone();
+                caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+            }
+            return response;
+        }).catch(() => caches.match(event.request))
     );
 });

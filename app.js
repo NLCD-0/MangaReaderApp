@@ -5,8 +5,7 @@
 
 // ---- CONFIG ----
 const CONFIG = {
-    token: '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',
-    password: 'NLCD_CloudAcces',
+    defaultToken: '',
     owner: 'NLCD-0',
     repo: 'CLOUD',
     branch: 'main',
@@ -19,49 +18,8 @@ const CONFIG = {
 
 const API_BASE = `https://api.github.com/repos/${CONFIG.owner}/${CONFIG.repo}/contents`;
 
-// ---- AUTHENTICATION ----
-function isAuth() {
-    return localStorage.getItem('mangacloud_auth') === 'true';
-}
-
-function setAuth(val) {
-    if (val) {
-        localStorage.setItem('mangacloud_auth', 'true');
-    } else {
-        localStorage.removeItem('mangacloud_auth');
-    }
-}
-
-function unlockApp(pwd) {
-    if (pwd && pwd.trim() === CONFIG.password) {
-        setAuth(true);
-        if (dom['auth-error']) dom['auth-error'].classList.remove('visible');
-        if (dom['password-input']) dom['password-input'].value = '';
-        showToast('Library unlocked! 📚');
-        showView('library');
-        renderContinueReading();
-        return true;
-    } else {
-        if (dom['auth-error']) dom['auth-error'].classList.add('visible');
-        if (dom['password-input']) {
-            dom['password-input'].focus();
-            dom['password-input'].select();
-        }
-        return false;
-    }
-}
-
-function lockApp() {
-    setAuth(false);
-    cleanupReader();
-    state.navigationStack = [];
-    if (dom['password-input']) dom['password-input'].value = '';
-    if (dom['auth-error']) dom['auth-error'].classList.remove('visible');
-    showView('auth');
-    showToast('Library locked 🔒');
-    setTimeout(() => {
-        if (dom['password-input']) dom['password-input'].focus();
-    }, 100);
+function getToken() {
+    return localStorage.getItem('mangacloud_token') || CONFIG.defaultToken;
 }
 
 // ---- STATE ----
@@ -147,7 +105,8 @@ function cacheDom() {
         'reader-container', 'reader-title', 'reader-progress', 'reader-header',
         'chapter-nav', 'btn-prev-chapter', 'btn-next-chapter', 'btn-download',
         'btn-back-library', 'btn-back-series', 'btn-back-chapters',
-        'btn-lock-app', 'auth-form', 'password-input', 'btn-toggle-password', 'auth-error',
+        'btn-open-settings', 'btn-close-settings', 'settings-modal',
+        'btn-save-token', 'btn-reset-token', 'token-input',
         'loading-overlay', 'loader-text', 'toast', 'btn-bookmark',
         'continue-reading', 'continue-reading-list',
         'ao3-mode-selector', 'btn-ao3-text', 'btn-ao3-pdf',
@@ -188,16 +147,26 @@ function encodePath(path) {
 }
 
 function githubHeaders(accept) {
-    return {
-        'Authorization': 'Bearer ' + CONFIG.token,
-        'Accept': accept
-    };
+    const token = getToken();
+    const headers = { 'Accept': accept };
+    if (token) {
+        headers['Authorization'] = token.startsWith('github_pat_') ? 'Bearer ' + token : 'token ' + token;
+    }
+    return headers;
 }
 
 function fetchGitHub(path) {
     const url = `${API_BASE}/${encodePath(path)}?ref=${CONFIG.branch}`;
     return fetch(url, { headers: githubHeaders('application/vnd.github.v3+json') })
         .then(resp => {
+            if (resp.status === 401) {
+                showToast('Token Error: 401 Bad Credentials');
+                throw new Error('GitHub API 401: Bad Credentials (Token invalid or expired)');
+            }
+            if (resp.status === 403) {
+                showToast('Token Error: 403 (Token lacks "Contents: Read" for CLOUD repo)');
+                throw new Error('GitHub API 403: Token lacks repository permission (contents=read)');
+            }
             if (!resp.ok) throw new Error('GitHub API error: ' + resp.status);
             return resp.json();
         });
@@ -207,6 +176,14 @@ function fetchPdfBlob(path) {
     const url = `${API_BASE}/${encodePath(path)}?ref=${CONFIG.branch}`;
     return fetch(url, { headers: githubHeaders('application/vnd.github.v3.raw') })
         .then(resp => {
+            if (resp.status === 401) {
+                showToast('Token Error: 401 Bad Credentials');
+                throw new Error('Download error: 401 Bad Credentials');
+            }
+            if (resp.status === 403) {
+                showToast('Token Error: 403 (Token lacks "Contents: Read" for CLOUD repo)');
+                throw new Error('Download error: 403 Lacks permission');
+            }
             if (!resp.ok) throw new Error('Download error: ' + resp.status);
             return resp.blob();
         });
@@ -455,6 +432,7 @@ function renderContinueReading() {
 // ============================================
 function renderLibrary() {
     const grid = dom['library-grid'];
+    if (!grid) return;
     grid.innerHTML = CONFIG.rootFolders.map(folder => {
         const iconHtml = folder.isImage
             ? `<img src="${folder.icon}" alt="${escapeAttr(folder.path)}" style="width:36px;height:36px;object-fit:contain;">`
@@ -470,14 +448,6 @@ function renderLibrary() {
             </div>
         </div>`;
     }).join('');
-
-    // Event delegation on grid
-    grid.addEventListener('click', e => {
-        const card = e.target.closest('.folder-card');
-        if (!card) return;
-        state.navigationStack.push('library');
-        openFolder(card.dataset.path);
-    });
 }
 
 // ============================================
@@ -499,6 +469,15 @@ function renderSeriesCards(container, items, iconHtml) {
 
 
 function openFolder(folderPath) {
+    if (!getToken()) {
+        showToast('Please configure your GitHub token first ⚙️');
+        if (dom['settings-modal']) {
+            dom['settings-modal'].classList.add('active');
+            if (dom['token-input']) dom['token-input'].focus();
+        }
+        return;
+    }
+
     showLoading('Loading collection...');
     state.currentFolder = folderPath;
     state.currentRootConfig = CONFIG.rootFolders.find(r => r.path === folderPath) || state.currentRootConfig;
@@ -1127,11 +1106,6 @@ function captureAndPush(view) {
 }
 
 function goBack() {
-    if (!isAuth()) {
-        showView('auth');
-        return;
-    }
-
     const prev = state.navigationStack.pop();
     const view = (prev && typeof prev === 'object') ? prev.view : prev;
 
@@ -1174,35 +1148,16 @@ document.addEventListener('DOMContentLoaded', () => {
     cacheDom();
     initViews();
     renderLibrary();
+    renderContinueReading();
 
-    // Password auth setup
-    if (dom['auth-form']) {
-        dom['auth-form'].addEventListener('submit', e => {
-            e.preventDefault();
-            const val = dom['password-input'] ? dom['password-input'].value : '';
-            unlockApp(val);
+    // Library grid — single persistent listener
+    if (dom['library-grid']) {
+        dom['library-grid'].addEventListener('click', e => {
+            const card = e.target.closest('.folder-card');
+            if (!card) return;
+            state.navigationStack.push('library');
+            openFolder(card.dataset.path);
         });
-    }
-
-    if (dom['btn-toggle-password']) {
-        dom['btn-toggle-password'].addEventListener('click', () => {
-            const input = dom['password-input'];
-            const eyeIcon = dom['btn-toggle-password'].querySelector('.icon-eye');
-            const eyeOffIcon = dom['btn-toggle-password'].querySelector('.icon-eye-off');
-            if (input.type === 'password') {
-                input.type = 'text';
-                if (eyeIcon) eyeIcon.style.display = 'none';
-                if (eyeOffIcon) eyeOffIcon.style.display = 'block';
-            } else {
-                input.type = 'password';
-                if (eyeIcon) eyeIcon.style.display = 'block';
-                if (eyeOffIcon) eyeOffIcon.style.display = 'none';
-            }
-        });
-    }
-
-    if (dom['btn-lock-app']) {
-        dom['btn-lock-app'].addEventListener('click', lockApp);
     }
 
     // Chapters list — single persistent listener
@@ -1345,15 +1300,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Browser back button support
     window.addEventListener('popstate', goBack);
 
-    // Check initial auth state
-    if (isAuth()) {
-        showView('library');
+    // ---- SETTINGS MODAL ----
+    const openSettings = () => {
+        dom['token-input'].value = localStorage.getItem('mangacloud_token') || '';
+        dom['settings-modal'].classList.add('active');
+        dom['token-input'].focus();
+    };
+    const closeSettings = () => dom['settings-modal'].classList.remove('active');
+
+    dom['btn-open-settings'].addEventListener('click', openSettings);
+    dom['btn-close-settings'].addEventListener('click', closeSettings);
+    dom['settings-modal'].addEventListener('click', e => {
+        if (e.target === dom['settings-modal']) closeSettings();
+    });
+
+    dom['btn-save-token'].addEventListener('click', () => {
+        const val = dom['token-input'].value.trim();
+        if (!val) { showToast('Please enter a token'); return; }
+        localStorage.setItem('mangacloud_token', val);
+        closeSettings();
+        showToast('Token saved! ✓');
+        // Reload library view
+        renderLibrary();
         renderContinueReading();
-    } else {
-        showView('auth');
-        setTimeout(() => {
-            if (dom['password-input']) dom['password-input'].focus();
-        }, 100);
+    });
+
+    dom['btn-reset-token'].addEventListener('click', () => {
+        localStorage.removeItem('mangacloud_token');
+        dom['token-input'].value = '';
+        closeSettings();
+        showToast('Token cleared');
+    });
+
+    // Auto prompt settings if no token is saved
+    if (!getToken()) {
+        openSettings();
     }
 
     // Register service worker
