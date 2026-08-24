@@ -1,5 +1,5 @@
 // Service Worker — Cache app shell only, NOT PDFs
-const CACHE_NAME = 'mangacloud-v2';
+const CACHE_NAME = 'mangacloud-v5';
 const SHELL_ASSETS = [
     './',
     './index.html',
