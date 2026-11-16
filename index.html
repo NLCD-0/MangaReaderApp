@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=4.0, viewport-fit=cover">
+    <meta name="theme-color" content="#0d0e15">
+    <meta name="description"
+        content="Personal reader for Manga, Webtoons, Novels, and AO3 stories directly from your private GitHub cloud library.">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Cloud Reader — Manga, Novels & AO3</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css?v=10">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+
+<body>
+
+    <!-- ==================== LIBRARY VIEW ==================== -->
+    <div id="view-library" class="view active">
+        <header class="app-header">
+            <div class="header-content">
+                <div class="header-branding">
+                    <h1 class="app-title">
+                        <span class="title-icon">📚</span>
+                        CloudReader
+                    </h1>
+                    <p class="app-subtitle">NLCD-0 / CLOUD</p>
+                </div>
+                <div class="header-actions">
+                    <button class="btn-header-action" id="btn-open-log" aria-label="Reading Log & History" title="Reading Log">
+                        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                        <span class="log-badge-count" id="header-log-count" style="display:none">0</span>
+                    </button>
+                    <button class="btn-header-action" id="btn-open-settings" aria-label="Settings" title="Configure GitHub Token">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3" />
+                            <path
+                                d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Token Missing Alert Banner -->
+        <div class="token-alert-banner" id="token-alert" style="display:none">
+            <div class="token-alert-content">
+                <span class="token-alert-icon">🔑</span>
+                <div class="token-alert-text">
+                    <strong>GitHub Token Required</strong>
+                    <p>Enter your access token to load your cloud library.</p>
+                </div>
+                <button class="token-alert-btn" id="btn-banner-token">Set Token</button>
+            </div>
+        </div>
+
+        <!-- Continue Reading Section -->
+        <section class="continue-reading" id="continue-reading" style="display:none">
+            <div class="section-header">
+                <h2 class="section-title">Continue Reading</h2>
+                <button class="btn-text-link" id="btn-see-all-log">See All History →</button>
+            </div>
+            <div class="continue-reading-list" id="continue-reading-list"></div>
+        </section>
+
+        <!-- Root Categories (Only Manga & Webtoon, Novela, ao3) -->
+        <section class="library-section">
+            <div class="section-header">
+                <h2 class="section-title">Cloud Folders</h2>
+                <span class="section-badge">3 Categories</span>
+            </div>
+            <main class="library-grid" id="library-grid">
+                <!-- Injected via app.js -->
+            </main>
+        </section>
+    </div>
+
+    <!-- ==================== READING LOG VIEW ==================== -->
+    <div id="view-log" class="view">
+        <header class="app-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-log-to-library" aria-label="Back to library">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="header-info">
+                    <h1 class="view-title">Reading Log</h1>
+                    <p class="view-subtitle" id="log-count-subtitle">0 stories tracked</p>
+                </div>
+                <button class="btn-header-text" id="btn-clear-log" title="Clear reading history">Clear</button>
+            </div>
+        </header>
+
+        <div class="log-controls">
+            <!-- Filter Tabs -->
+            <div class="filter-pills" id="log-filter-pills">
+                <button class="filter-pill active" data-filter="all">All</button>
+                <button class="filter-pill" data-filter="Manga & Webtoon">📖 Manga</button>
+                <button class="filter-pill" data-filter="Novela">📕 Novela</button>
+                <button class="filter-pill" data-filter="ao3">AO3</button>
+            </div>
+            <!-- Search in Log -->
+            <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="log-search-input" placeholder="Search started stories..." autocomplete="off">
+                <button class="search-clear" id="btn-clear-log-search" style="display:none">✕</button>
+            </div>
+        </div>
+
+        <main class="log-list" id="log-list">
+            <!-- Log cards injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== SERIES / SUBFOLDERS VIEW ==================== -->
+    <div id="view-series" class="view">
+        <header class="app-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-series" aria-label="Back">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="header-info">
+                    <h1 class="view-title" id="series-title">Series</h1>
+                    <p class="view-subtitle" id="series-subtitle">Browse collection</p>
+                </div>
+                <button class="btn-download-all" id="btn-download-folder-zip" aria-label="Download folder as ZIP" title="Download folder as ZIP">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span class="download-all-label">ZIP</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Breadcrumbs for deep nesting -->
+        <nav class="breadcrumb-bar" id="series-breadcrumbs" style="display:none"></nav>
+
+        <div class="list-search-container">
+            <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="series-search-input" placeholder="Search folders..." autocomplete="off">
+            </div>
+        </div>
+
+        <main class="series-list" id="series-list">
+            <!-- Folders cards injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== CHAPTERS / STORIES VIEW ==================== -->
+    <div id="view-chapters" class="view">
+        <header class="app-header">
+            <div class="header-content">
+                <button class="btn-back" id="btn-back-chapters" aria-label="Back">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="header-info">
+                    <h1 class="view-title" id="chapters-title">Chapters</h1>
+                    <p class="view-subtitle" id="chapters-subtitle">Select item to read</p>
+                </div>
+                <button class="btn-download-all" id="btn-download-all" aria-label="Download all as ZIP" title="Download all items as ZIP">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span class="download-all-label">Download All</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Breadcrumbs for deep nesting -->
+        <nav class="breadcrumb-bar" id="chapters-breadcrumbs" style="display:none"></nav>
+
+        <div class="list-search-container">
+            <div class="search-box">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="chapters-search-input" placeholder="Search stories/chapters..." autocomplete="off">
+            </div>
+        </div>
+
+        <main class="chapters-list" id="chapters-list">
+            <!-- Subfolders and Chapters / Stories injected here -->
+        </main>
+    </div>
+
+    <!-- ==================== READER VIEW ==================== -->
+    <div id="view-reader" class="view">
+        <header class="reader-header" id="reader-header">
+            <div class="reader-header-top">
+                <button class="btn-reader-action" id="btn-back-from-reader" aria-label="Back">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 12H5" />
+                        <path d="M12 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <div class="reader-header-info">
+                    <h1 class="reader-item-title" id="reader-title">Reading</h1>
+                    <p class="reader-item-progress" id="reader-progress">Loading...</p>
+                </div>
+                <div class="reader-header-buttons">
+                    <!-- Toggle PDF / Text mode (visible in AO3 if PDF available) -->
+                    <button class="btn-reader-mode" id="btn-toggle-mode" aria-label="Switch mode" title="Switch between Text and PDF" style="display:none">
+                        <span id="toggle-mode-icon">📄</span>
+                        <span id="toggle-mode-text" class="toggle-mode-text">PDF</span>
+                    </button>
+                    <!-- Bookmark button -->
+                    <button class="btn-bookmark" id="btn-bookmark" aria-label="Bookmark position" title="Bookmark reading position">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" />
+                        </svg>
+                    </button>
+                    <!-- Download current file -->
+                    <button class="btn-reader-action" id="btn-download" aria-label="Download file" title="Download">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Text Formatting Bar (Shown when reading text) -->
+            <div class="reader-text-toolbar" id="reader-text-toolbar" style="display:none">
+                <span class="toolbar-label">Text Size:</span>
+                <button class="btn-font-size" id="btn-font-decrease" aria-label="Decrease text size" title="Smaller text">A−</button>
+                <span class="font-size-val" id="font-size-val">18px</span>
+                <button class="btn-font-size" id="btn-font-increase" aria-label="Increase text size" title="Larger text">A+</button>
+                <div class="toolbar-divider"></div>
+                <button class="btn-font-toggle" id="btn-font-family" title="Toggle font family">Serif</button>
+            </div>
+        </header>
+
+        <!-- Main Reading Container (Webtoon canvases or pure translatable DOM text) -->
+        <main class="reader-container" id="reader-container">
+            <!-- Rendered content injected here -->
+        </main>
+
+        <!-- Bottom Navigation Bar -->
+        <nav class="chapter-nav" id="chapter-nav">
+            <button class="chapter-nav-btn" id="btn-prev-chapter" aria-label="Previous item">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 12H5" />
+                    <path d="M12 19l-7-7 7-7" />
+                </svg>
+                <span>Prev</span>
+            </button>
+            <button class="chapter-nav-center-btn" id="btn-nav-bookmark" title="Bookmark position">
+                <span class="nav-bm-icon">🔖</span>
+                <span class="nav-bm-text">Bookmark</span>
+            </button>
+            <button class="chapter-nav-btn" id="btn-next-chapter" aria-label="Next item">
+                <span>Next</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5l7 7-7 7" />
+                </svg>
+            </button>
+        </nav>
+    </div>
+
+    <!-- ==================== SETTINGS MODAL ==================== -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title">⚙️ Cloud Access Settings</h2>
+                <button class="modal-close" id="btn-close-settings" aria-label="Close settings">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="repo-badge">
+                    <span class="repo-badge-label">Target Repository:</span>
+                    <a href="https://github.com/NLCD-0/CLOUD" target="_blank" rel="noopener noreferrer" class="repo-badge-link">
+                        github.com/NLCD-0/CLOUD ↗
+                    </a>
+                </div>
+
+                <label class="modal-label" for="token-input">GitHub Personal Access Token (Password Mode)</label>
+                <div class="input-password-wrapper">
+                    <input class="modal-input" id="token-input" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" spellcheck="false">
+                    <button class="btn-toggle-password" id="btn-toggle-token-visibility" type="button" aria-label="Toggle token visibility" title="Show/Hide Token">
+                        👁️
+                    </button>
+                </div>
+                <p class="modal-hint">
+                    🔒 The token is saved strictly in your browser (password mode) until you clear your browser data.
+                    Requires GitHub fine-grained token with <strong>Contents: Read</strong> permission, or classic PAT with <strong>repo</strong> scope.
+                </p>
+
+                <div class="modal-actions">
+                    <button class="modal-btn modal-btn-save" id="btn-save-token">Save Token</button>
+                    <button class="modal-btn modal-btn-reset" id="btn-reset-token">Clear Memory</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== LOADING OVERLAY ==================== -->
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loader">
+            <div class="loader-spinner"></div>
+            <p class="loader-text" id="loader-text">Loading...</p>
+        </div>
+    </div>
+
+    <!-- ==================== TOAST ==================== -->
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js?v=10"></script>
+</body>
+
+</html>
